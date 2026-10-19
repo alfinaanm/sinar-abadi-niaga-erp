@@ -194,8 +194,10 @@ CREATE TABLE IF NOT EXISTS public.audit_log (
 
 -- ====================================================================
 -- RAHASIA DAGANG: DYNAMIC DATA MASKING VIEW (HPP & MARGIN)
+-- Menggunakan security_invoker = true agar mematuhi RLS tabel barang
 -- ====================================================================
-CREATE OR REPLACE VIEW public.v_barang AS
+CREATE OR REPLACE VIEW public.v_barang 
+WITH (security_invoker = true) AS
 SELECT 
     b.id,
     b.kode,
