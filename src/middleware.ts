@@ -37,9 +37,16 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user = null;
+  try {
+    const {
+      data: { user: authUser },
+    } = await supabase.auth.getUser();
+    user = authUser;
+  } catch (err) {
+    // Tangani kemungkinan fetch timeout / koneksi internet terputus sesaat
+    console.warn('Middleware: Gagal menghubungi Supabase Auth (koneksi internet terputus atau timeout):', (err as Error)?.message);
+  }
 
   const pathname = request.nextUrl.pathname;
   const isAuthRoute = pathname.startsWith('/login');

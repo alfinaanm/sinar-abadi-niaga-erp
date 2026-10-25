@@ -123,7 +123,7 @@ $$;
 -- 4. SETUJUI PEMBELIAN (Hanya Manajer, Wajib Isi Harga Beli Satuan > 0)
 CREATE OR REPLACE FUNCTION public.setujui_pembelian(
     p_pembelian_id UUID,
-    p_harga_beli_satuan NUMERIC(14,0)
+    p_harga_beli_satuan NUMERIC
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -663,3 +663,10 @@ BEGIN
     );
 END;
 $$;
+
+-- Berikan hak akses eksekusi ke authenticated untuk semua fungsi di public schema
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO authenticated;
+
+-- Refresh cache skema PostgREST agar fungsi baru langsung terdeteksi
+NOTIFY pgrst, 'reload schema';
+

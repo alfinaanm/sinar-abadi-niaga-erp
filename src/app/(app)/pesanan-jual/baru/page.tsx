@@ -79,6 +79,7 @@ export default function BuatPesananJualBaruPage() {
   const [loadingData, setLoadingData] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Akses hanya untuk staf penjualan dan manajer
   useEffect(() => {
@@ -389,19 +390,35 @@ export default function BuatPesananJualBaruPage() {
 
         if (konfirmasiErr) {
           // Jika konfirmasi gagal, pesanan tetap tersimpan sebagai draf
-          alert(
-            `Pesanan ${pjData.nomor} tersimpan sebagai DRAF, namun gagal dikonfirmasi: ${konfirmasiErr.message}`
+          setSuccessMessage(
+            `Pesanan ${pjData.nomor} tersimpan sebagai DRAF (namun belum dikonfirmasi: ${konfirmasiErr.message}). Mengalihkan ke halaman detail...`
           );
-          router.push(`/pesanan-jual/${pjData.id}`);
+          if (typeof window !== 'undefined') {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+          router.refresh();
+          router.push(`/pesanan-jual/${pjData.id}?status_action=draf`);
           return;
         }
       }
 
-      router.push(`/pesanan-jual/${pjData.id}`);
+      setSuccessMessage(
+        langsungKonfirmasi
+          ? `Pesanan ${pjData.nomor} berhasil dibuat dan langsung dikonfirmasi! Membuka halaman detail pesanan...`
+          : `Pesanan ${pjData.nomor} berhasil disimpan sebagai DRAF! Membuka halaman detail pesanan...`
+      );
+      if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+
+      router.refresh();
+      router.push(`/pesanan-jual/${pjData.id}?status_action=${langsungKonfirmasi ? 'dikonfirmasi' : 'draf'}`);
     } catch (err: unknown) {
       console.error('Gagal membuat pesanan jual:', err);
-      setErrorMessage(err instanceof Error ? err.message : 'Terjadi kesalahan saat menyimpan pesanan');
-    } finally {
+      const msg =
+        (err as { message?: string })?.message ||
+        (err instanceof Error ? err.message : 'Terjadi kesalahan saat menyimpan pesanan');
+      setErrorMessage(msg);
       setSubmitting(false);
     }
   };
@@ -434,6 +451,16 @@ export default function BuatPesananJualBaruPage() {
           </p>
         </div>
       </div>
+
+      {successMessage && (
+        <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 text-emerald-700 dark:text-emerald-300 text-sm flex items-start gap-2.5 shadow-sm animate-in fade-in">
+          <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
+          <div>
+            <p className="font-semibold text-emerald-800 dark:text-emerald-200">Pesanan Berhasil Disimpan!</p>
+            <p className="mt-0.5 text-xs">{successMessage}</p>
+          </div>
+        </div>
+      )}
 
       {errorMessage && (
         <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 text-sm flex items-start gap-2.5">
@@ -702,7 +729,7 @@ export default function BuatPesananJualBaruPage() {
           disabled={submitting}
           className="w-full sm:w-auto px-5 py-2.5 text-sm font-semibold text-zinc-800 dark:text-zinc-200 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-xl transition shadow-sm text-center disabled:opacity-50"
         >
-          {submitting ? 'Menyimpan...' : 'Simpan sebagai Draf'}
+          {submitting ? 'Menyimpan & Mengalihkan...' : 'Simpan sebagai Draf'}
         </button>
 
         <button
@@ -712,7 +739,7 @@ export default function BuatPesananJualBaruPage() {
           className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-2.5 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-xl transition shadow-sm disabled:opacity-50"
         >
           <CheckCircle2 className="w-4 h-4" />
-          {submitting ? 'Memproses...' : 'Simpan & Konfirmasi'}
+          {submitting ? 'Memproses & Mengalihkan...' : 'Simpan & Konfirmasi'}
         </button>
       </div>
     </div>

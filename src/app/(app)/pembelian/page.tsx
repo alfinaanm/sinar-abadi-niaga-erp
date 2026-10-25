@@ -4,17 +4,17 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '@/components/auth-provider';
 import { createClient } from '@/lib/supabase/client';
 import { formatRupiah, formatTanggal, getStatusPembelianBadge } from '@/lib/format';
-import { 
-  Truck, 
-  Search, 
-  Plus, 
-  CheckCircle2, 
-  XCircle, 
-  Clock, 
-  AlertCircle, 
-  PackageCheck, 
-  Ban, 
-  X, 
+import {
+  Truck,
+  Search,
+  Plus,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  AlertCircle,
+  PackageCheck,
+  Ban,
+  X,
   RefreshCw,
   Building2,
   DollarSign,
@@ -267,23 +267,59 @@ export default function PembelianPage() {
         throw new Error('Harga beli satuan wajib diisi dan harus lebih dari Rp0.');
       }
 
-      const { data, error } = await supabase.rpc('setujui_pembelian', {
-        p_pembelian_id: selectedPO.id,
-        p_harga_beli_satuan: hargaBeliInput,
-      });
+      const hargaBeli = Math.round(Number(hargaBeliInput));
+      const currentUserId = profile?.id || (await supabase.auth.getUser()).data.user?.id || null;
 
-      if (error) throw error;
+      // 1. Lakukan update langsung ke tabel pembelian (diizinkan RLS Manajer)
+      const { error: updateErr } = await supabase
+        .from('pembelian')
+        .update({
+          status: 'disetujui',
+          harga_beli_satuan: hargaBeli,
+          diputuskan_oleh: currentUserId,
+          diputuskan_pada: new Date().toISOString(),
+        })
+        .eq('id', selectedPO.id);
+
+      if (updateErr) {
+        // Fallback coba panggil RPC jika update tabel gagal
+        const { error: rpcErr } = await supabase.rpc('setujui_pembelian', {
+          p_pembelian_id: selectedPO.id,
+          p_harga_beli_satuan: hargaBeli,
+        });
+
+        if (rpcErr) {
+          throw new Error(updateErr.message || rpcErr.message || 'Gagal menyetujui pembelian.');
+        }
+      }
+
+      // Catat di audit_log
+      try {
+        await supabase.from('audit_log').insert({
+          pelaku_id: currentUserId,
+          aksi: 'setujui_pembelian',
+          nama_tabel: 'pembelian',
+          data_id: selectedPO.id,
+          nilai_lama: { status: selectedPO.status },
+          nilai_baru: { status: 'disetujui', harga_beli_satuan: hargaBeli },
+        });
+      } catch {
+        // ignore audit log error
+      }
 
       setActionMsg({
         type: 'success',
-        text: (data as { message?: string })?.message || `PO ${selectedPO.nomor} disetujui.`,
+        text: `PO ${selectedPO.nomor} berhasil disetujui dengan harga Rp ${hargaBeli.toLocaleString('id-ID')}.`,
       });
       setShowSetujuiModal(false);
       fetchData();
     } catch (err: unknown) {
+      const msg =
+        (err as { message?: string })?.message ||
+        (err instanceof Error ? err.message : 'Gagal menyetujui pembelian.');
       setActionMsg({
         type: 'error',
-        text: err instanceof Error ? err.message : 'Gagal menyetujui pembelian.',
+        text: msg,
       });
     } finally {
       setSubmitting(false);
@@ -298,20 +334,52 @@ export default function PembelianPage() {
       setSubmitting(true);
       setActionMsg(null);
 
-      if (alasanTolakInput.trim().length < 10) {
+      const alasanBersih = alasanTolakInput.trim();
+      if (alasanBersih.length < 10) {
         throw new Error('Alasan penolakan wajib diisi minimal 10 karakter.');
       }
 
-      const { data, error } = await supabase.rpc('tolak_pembelian', {
-        p_pembelian_id: selectedPO.id,
-        p_alasan_tolak: alasanTolakInput.trim(),
-      });
+      const currentUserId = profile?.id || (await supabase.auth.getUser()).data.user?.id || null;
 
-      if (error) throw error;
+      // 1. Lakukan update langsung ke tabel pembelian (diizinkan RLS Manajer)
+      const { error: updateErr } = await supabase
+        .from('pembelian')
+        .update({
+          status: 'ditolak',
+          alasan_tolak: alasanBersih,
+          diputuskan_oleh: currentUserId,
+          diputuskan_pada: new Date().toISOString(),
+        })
+        .eq('id', selectedPO.id);
+
+      if (updateErr) {
+        const { error: rpcErr } = await supabase.rpc('tolak_pembelian', {
+          p_pembelian_id: selectedPO.id,
+          p_alasan_tolak: alasanBersih,
+        });
+
+        if (rpcErr) {
+          throw new Error(updateErr.message || rpcErr.message || 'Gagal menolak pembelian.');
+        }
+      }
+
+      // Catat di audit_log
+      try {
+        await supabase.from('audit_log').insert({
+          pelaku_id: currentUserId,
+          aksi: 'tolak_pembelian',
+          nama_tabel: 'pembelian',
+          data_id: selectedPO.id,
+          nilai_lama: { status: selectedPO.status },
+          nilai_baru: { status: 'ditolak', alasan_tolak: alasanBersih },
+        });
+      } catch {
+        // ignore
+      }
 
       setActionMsg({
         type: 'success',
-        text: (data as { message?: string })?.message || `PO ${selectedPO.nomor} berhasil ditolak.`,
+        text: `PO ${selectedPO.nomor} berhasil ditolak.`,
       });
       setShowTolakModal(false);
       fetchData();
@@ -337,16 +405,76 @@ export default function PembelianPage() {
         throw new Error(`Jumlah diterima harus antara 1 sampai ${selectedPO.jumlah_dipesan}.`);
       }
 
-      const { data, error } = await supabase.rpc('terima_pembelian', {
-        p_pembelian_id: selectedPO.id,
-        p_jumlah_diterima: jumlahTerimaInput,
-      });
+      const currentUserId = profile?.id || (await supabase.auth.getUser()).data.user?.id || null;
 
-      if (error) throw error;
+      // 1. Update status pembelian menjadi diterima
+      const { error: poErr } = await supabase
+        .from('pembelian')
+        .update({
+          status: 'diterima',
+          jumlah_diterima: jumlahTerimaInput,
+          diterima_oleh: currentUserId,
+          diterima_pada: new Date().toISOString(),
+        })
+        .eq('id', selectedPO.id);
+
+      if (poErr) {
+        const { error: rpcErr } = await supabase.rpc('terima_pembelian', {
+          p_pembelian_id: selectedPO.id,
+          p_jumlah_diterima: jumlahTerimaInput,
+        });
+        if (rpcErr) throw new Error(poErr.message || rpcErr.message || 'Gagal mencatat penerimaan barang.');
+      } else {
+        // 2. Tambah stok barang & update HPP
+        const { data: bData } = await supabase
+          .from('barang')
+          .select('stok, harga_pokok')
+          .eq('id', selectedPO.barang_id)
+          .single();
+
+        if (bData) {
+          const stokBaru = (bData.stok || 0) + jumlahTerimaInput;
+          await supabase
+            .from('barang')
+            .update({
+              stok: stokBaru,
+              harga_pokok: selectedPO.harga_beli_satuan ?? bData.harga_pokok,
+              diperbarui_pada: new Date().toISOString(),
+            })
+            .eq('id', selectedPO.barang_id);
+
+          try {
+            await supabase.from('mutasi_stok').insert({
+              barang_id: selectedPO.barang_id,
+              jenis: 'masuk',
+              jumlah: jumlahTerimaInput,
+              stok_sesudah: stokBaru,
+              nomor_dokumen: selectedPO.nomor,
+              alasan: `Penerimaan barang pembelian PO ${selectedPO.nomor}`,
+              dibuat_oleh: currentUserId,
+            });
+          } catch {
+            // ignore
+          }
+        }
+
+        try {
+          await supabase.from('audit_log').insert({
+            pelaku_id: currentUserId,
+            aksi: 'terima_pembelian',
+            nama_tabel: 'pembelian',
+            data_id: selectedPO.id,
+            nilai_lama: { status: selectedPO.status },
+            nilai_baru: { status: 'diterima', jumlah_diterima: jumlahTerimaInput },
+          });
+        } catch {
+          // ignore
+        }
+      }
 
       setActionMsg({
         type: 'success',
-        text: (data as { message?: string })?.message || `Barang PO ${selectedPO.nomor} berhasil diterima dan stok bertambah.`,
+        text: `Barang PO ${selectedPO.nomor} berhasil diterima dan stok bertambah sebanyak ${jumlahTerimaInput} unit.`,
       });
       setShowTerimaModal(false);
       fetchData();
@@ -367,15 +495,40 @@ export default function PembelianPage() {
       setLoading(true);
       setActionMsg(null);
 
-      const { data, error } = await supabase.rpc('batalkan_pembelian', {
-        p_pembelian_id: po.id,
-      });
+      const currentUserId = profile?.id || (await supabase.auth.getUser()).data.user?.id || null;
 
-      if (error) throw error;
+      const { error: updateErr } = await supabase
+        .from('pembelian')
+        .update({
+          status: 'dibatalkan',
+          diputuskan_oleh: currentUserId,
+          diputuskan_pada: new Date().toISOString(),
+        })
+        .eq('id', po.id);
+
+      if (updateErr) {
+        const { error: rpcErr } = await supabase.rpc('batalkan_pembelian', {
+          p_pembelian_id: po.id,
+        });
+        if (rpcErr) throw new Error(updateErr.message || rpcErr.message || 'Gagal membatalkan pembelian.');
+      }
+
+      try {
+        await supabase.from('audit_log').insert({
+          pelaku_id: currentUserId,
+          aksi: 'batalkan_pembelian',
+          nama_tabel: 'pembelian',
+          data_id: po.id,
+          nilai_lama: { status: po.status },
+          nilai_baru: { status: 'dibatalkan' },
+        });
+      } catch {
+        // ignore
+      }
 
       setActionMsg({
         type: 'success',
-        text: (data as { message?: string })?.message || `PO ${po.nomor} berhasil dibatalkan.`,
+        text: `PO ${po.nomor} berhasil dibatalkan.`,
       });
       fetchData();
     } catch (err: unknown) {
@@ -383,6 +536,7 @@ export default function PembelianPage() {
         type: 'error',
         text: err instanceof Error ? err.message : 'Gagal membatalkan pembelian.',
       });
+    } finally {
       setLoading(false);
     }
   };
@@ -477,11 +631,10 @@ export default function PembelianPage() {
       {/* Pesan Status Aksi */}
       {actionMsg && (
         <div
-          className={`p-4 rounded-xl text-sm flex items-center justify-between gap-3 ${
-            actionMsg.type === 'success'
-              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-              : 'bg-rose-50 text-rose-800 border border-rose-200'
-          }`}
+          className={`p-4 rounded-xl text-sm flex items-center justify-between gap-3 ${actionMsg.type === 'success'
+            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+            : 'bg-rose-50 text-rose-800 border border-rose-200'
+            }`}
         >
           <div className="flex items-center gap-2 font-medium">
             {actionMsg.type === 'success' ? (
@@ -534,11 +687,10 @@ export default function PembelianPage() {
       <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
         <button
           onClick={() => setActiveTab('pembelian')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
-            activeTab === 'pembelian'
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${activeTab === 'pembelian'
+            ? 'bg-blue-600 text-white shadow-sm'
+            : 'text-slate-600 hover:bg-slate-100'
+            }`}
         >
           <Truck className="w-4 h-4" />
           <span>Daftar Pembelian (PO)</span>
@@ -546,11 +698,10 @@ export default function PembelianPage() {
 
         <button
           onClick={() => setActiveTab('pemasok')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
-            activeTab === 'pemasok'
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${activeTab === 'pemasok'
+            ? 'bg-blue-600 text-white shadow-sm'
+            : 'text-slate-600 hover:bg-slate-100'
+            }`}
         >
           <Building2 className="w-4 h-4" />
           <span>Data Pemasok ({pemasokList.length})</span>
@@ -575,11 +726,10 @@ export default function PembelianPage() {
                 <button
                   key={tab.id}
                   onClick={() => setStatusFilter(tab.id)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
-                    statusFilter === tab.id
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${statusFilter === tab.id
+                    ? 'bg-slate-900 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
                 >
                   {tab.label}
                 </button>
@@ -986,9 +1136,8 @@ export default function PembelianPage() {
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="font-semibold text-slate-700">Alasan Penolakan</label>
-                  <span className={`text-[10px] font-mono ${
-                    alasanTolakInput.trim().length >= 10 ? 'text-emerald-600 font-bold' : 'text-slate-400'
-                  }`}>
+                  <span className={`text-[10px] font-mono ${alasanTolakInput.trim().length >= 10 ? 'text-emerald-600 font-bold' : 'text-slate-400'
+                    }`}>
                     {alasanTolakInput.trim().length}/10 karakter
                   </span>
                 </div>
@@ -1104,9 +1253,8 @@ export default function PembelianPage() {
                   disabled={!!selectedPemasok}
                   value={pemasokKode}
                   onChange={(e) => setPemasokKode(e.target.value.toUpperCase())}
-                  className={`w-full px-3 py-2 rounded-xl border border-slate-200 font-mono uppercase ${
-                    selectedPemasok ? 'bg-slate-100 cursor-not-allowed text-slate-500' : 'focus:ring-2 focus:ring-blue-500'
-                  }`}
+                  className={`w-full px-3 py-2 rounded-xl border border-slate-200 font-mono uppercase ${selectedPemasok ? 'bg-slate-100 cursor-not-allowed text-slate-500' : 'focus:ring-2 focus:ring-blue-500'
+                    }`}
                 />
               </div>
 

@@ -43,9 +43,9 @@ export default function AppClientShell({ children }: { children: React.ReactNode
   );
 
   return (
-    <div className="min-h-screen flex bg-slate-100">
-      {/* Sidebar Navigasi Kiri (Sesuai Wireframe) */}
-      <aside className="w-64 bg-slate-900 text-white flex flex-col flex-shrink-0 border-r border-slate-800">
+    <div className="h-screen min-h-screen flex overflow-hidden bg-slate-100 print:h-auto print:min-h-0 print:overflow-visible print:bg-white print:block">
+      {/* Sidebar Navigasi Kiri (Statis & Terkunci) - Tersembunyi saat cetak */}
+      <aside className="w-64 h-screen sticky top-0 bg-slate-900 text-white flex flex-col flex-shrink-0 border-r border-slate-800 print:hidden z-20">
         {/* Brand Header */}
         <div className="p-6 border-b border-slate-800 flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20">
@@ -113,24 +113,9 @@ export default function AppClientShell({ children }: { children: React.ReactNode
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Top Navbar */}
-        <header className="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
-              Role: {formatPeran(profile.peran)}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-4 text-xs text-slate-500">
-            <span>Sistem Distribusi Sembako</span>
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-            <span className="font-medium text-slate-700">Database Aktif</span>
-          </div>
-        </header>
-
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden print:h-auto print:overflow-visible print:block print:w-full">
         {/* Content Page Body */}
-        <main className="flex-1 overflow-y-auto p-8">
+        <main className="flex-1 overflow-y-auto p-8 print:p-0 print:m-0 print:overflow-visible print:block print:w-full">
           {isAllowed ? (
             children
           ) : (

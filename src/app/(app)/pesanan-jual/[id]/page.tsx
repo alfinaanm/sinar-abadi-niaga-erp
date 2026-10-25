@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, use } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/components/auth-provider';
 import { createClient } from '@/lib/supabase/client';
@@ -43,11 +43,13 @@ interface PesananDetail {
   dibatalkan_pada: string | null;
   alasan_batal: string | null;
   pelanggan?: {
+    id?: string;
     kode: string;
     nama_toko: string;
     telepon: string | null;
     alamat: string | null;
     termin_hari: number;
+    batas_kredit: number;
   };
   pembuat?: {
     nama_lengkap: string;
@@ -76,9 +78,12 @@ export default function DetailPesananJualPage({
 }) {
   const resolvedParams = use(params);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const statusAction = searchParams.get('status_action');
   const { profile, loading: authLoading } = useAuth();
   const [pesanan, setPesanan] = useState<PesananDetail | null>(null);
   const [items, setItems] = useState<ItemRow[]>([]);
+  const [piutangBerjalan, setPiutangBerjalan] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
   const [actionLoading, setActionLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -115,14 +120,34 @@ export default function DetailPesananJualPage({
           dilunasi_pada,
           dibatalkan_pada,
           alasan_batal,
-          pelanggan:pelanggan_id ( kode, nama_toko, telepon, alamat, termin_hari ),
+          pelanggan:pelanggan_id ( id, kode, nama_toko, telepon, alamat, termin_hari, batas_kredit ),
           pembuat:dibuat_oleh ( nama_lengkap )
         `)
         .eq('id', resolvedParams.id)
         .single();
 
       if (pjErr) throw pjErr;
-      setPesanan(pj as unknown as PesananDetail);
+      const orderData = pj as unknown as PesananDetail;
+      setPesanan(orderData);
+
+      // Hitung piutang berjalan untuk kartu Pelanggan sesuai wireframe
+      if (orderData.pelanggan_id) {
+        try {
+          const { data: pOrders } = await supabase
+            .from('pesanan_jual')
+            .select('total')
+            .eq('pelanggan_id', orderData.pelanggan_id)
+            .in('status', ['dikonfirmasi', 'dikirim']);
+
+          let sumPiutang = 0;
+          pOrders?.forEach((o) => {
+            sumPiutang += Number(o.total || 0);
+          });
+          setPiutangBerjalan(sumPiutang);
+        } catch (e) {
+          console.warn('Gagal menghitung piutang berjalan:', e);
+        }
+      }
 
       // 2. Fetch Items melalui secure view v_item_pesanan_jual
       const { data: itData, error: itErr } = await supabase
@@ -154,6 +179,14 @@ export default function DetailPesananJualPage({
       fetchDetail();
     }
   }, [authLoading, profile, resolvedParams.id]);
+
+  useEffect(() => {
+    if (statusAction === 'draf') {
+      setSuccessMsg('Draf pesanan jual baru berhasil dibuat dan tersimpan di sistem.');
+    } else if (statusAction === 'dikonfirmasi') {
+      setSuccessMsg('Pesanan jual baru berhasil dibuat dan langsung dikonfirmasi. Stok telah dikurangi.');
+    }
+  }, [statusAction]);
 
   // Aksi 1: Konfirmasi Pesanan (Draf -> Dikonfirmasi)
   const handleKonfirmasi = async () => {
@@ -313,490 +346,571 @@ export default function DetailPesananJualPage({
   // Mode Cetak Surat Jalan (BR Nilai Tambah 11.2)
   if (printMode) {
     return (
-      <div className="bg-white text-zinc-900 p-8 max-w-3xl mx-auto space-y-6 print:p-0 print:m-0 font-sans">
-        <div className="flex items-center justify-between border-b pb-4 print:hidden">
+      <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm overflow-y-auto p-4 sm:p-6 md:p-8 flex flex-col items-center print:static print:p-0 print:m-0 print:bg-white print:overflow-visible print:block">
+        {/* Bar Aksi Pratinjau (Hanya tampil di layar, tersembunyi saat cetak/PDF) */}
+        <div className="w-full max-w-3xl flex items-center justify-between bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 px-6 py-3.5 rounded-t-xl border border-b-0 border-zinc-200 dark:border-zinc-800 shadow-sm print:hidden">
           <button
+            type="button"
             onClick={() => setPrintMode(false)}
-            className="inline-flex items-center gap-1.5 text-sm text-zinc-600 hover:text-zinc-900"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white px-3 py-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
           >
             <ArrowLeft className="w-4 h-4" /> Kembali ke Detail
           </button>
-          <button
-            onClick={() => window.print()}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-500"
-          >
-            <Printer className="w-4 h-4" /> Cetak Sekarang
-          </button>
-        </div>
-
-        {/* Header Surat Jalan */}
-        <div className="text-center space-y-1">
-          <h2 className="text-xl font-bold tracking-wide uppercase">CV SINAR ABADI NIAGA</h2>
-          <p className="text-xs text-zinc-600">Distributor Kebutuhan Toko Kelontong & Sembako - Bekasi</p>
-          <div className="inline-block border-y-2 border-zinc-900 py-1 px-8 my-2 font-black text-sm tracking-widest">
-            SURAT JALAN PENGIRIMAN BARANG
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-zinc-500 hidden sm:inline">Pratinjau Surat Jalan Pengiriman</span>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-500 shadow transition active:scale-95"
+            >
+              <Printer className="w-4 h-4" /> Cetak Sekarang
+            </button>
           </div>
         </div>
 
-        {/* Informasi Pengiriman */}
-        <div className="grid grid-cols-2 gap-4 text-xs">
-          <div>
-            <p className="font-semibold text-zinc-600">TUJUAN PENGIRIMAN:</p>
-            <p className="font-bold text-sm text-zinc-900">{pesanan.pelanggan?.nama_toko}</p>
-            <p className="text-zinc-700">{pesanan.pelanggan?.alamat || '-'}</p>
-            <p className="text-zinc-700">Telp: {pesanan.pelanggan?.telepon || '-'}</p>
+        {/* Lembar Dokumen Surat Jalan (Kertas Putih Bersih) */}
+        <div className="w-full max-w-3xl bg-white text-zinc-900 p-8 sm:p-10 space-y-6 font-sans shadow-2xl rounded-b-xl border border-zinc-200 print:shadow-none print:border-none print:rounded-none print:p-0 print:m-0 print:max-w-none print:w-full">
+          {/* Header Surat Jalan */}
+          <div className="text-center space-y-1">
+            <h2 className="text-xl font-bold tracking-wide uppercase text-zinc-900">CV SINAR ABADI NIAGA</h2>
+            <p className="text-xs text-zinc-600">Distributor Kebutuhan Toko Kelontong & Sembako - Bekasi</p>
+            <div className="inline-block border-y-2 border-zinc-900 py-1 px-8 my-2 font-black text-sm tracking-widest text-zinc-900">
+              SURAT JALAN PENGIRIMAN BARANG
+            </div>
           </div>
-          <div className="text-right space-y-1">
-            <p><strong>No. Dokumen:</strong> {pesanan.nomor}</p>
-            <p><strong>Tanggal Kirim:</strong> {formatTanggal(pesanan.dikirim_pada || new Date())}</p>
-            <p><strong>Status:</strong> Barang Resmi Diberangkatkan</p>
-          </div>
-        </div>
 
-        {/* Daftar Barang (TANPA HARGA untuk Pengemudi - PRD 11.2) */}
-        <table className="w-full text-xs border border-zinc-300">
-          <thead className="bg-zinc-100 font-bold border-b border-zinc-300">
-            <tr>
-              <th className="p-2 border-r border-zinc-300 text-center w-10">No</th>
-              <th className="p-2 border-r border-zinc-300 text-left">Kode Barang</th>
-              <th className="p-2 border-r border-zinc-300 text-left">Nama Barang</th>
-              <th className="p-2 border-r border-zinc-300 text-center w-24">Jumlah</th>
-              <th className="p-2 text-center w-20">Satuan</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-200">
-            {items.map((it, i) => (
-              <tr key={it.id}>
-                <td className="p-2 border-r border-zinc-200 text-center">{i + 1}</td>
-                <td className="p-2 border-r border-zinc-200 font-mono">{it.barang?.kode}</td>
-                <td className="p-2 border-r border-zinc-200 font-medium">{it.barang?.nama}</td>
-                <td className="p-2 border-r border-zinc-200 text-center font-bold text-sm">{it.jumlah}</td>
-                <td className="p-2 text-center uppercase">{it.barang?.satuan}</td>
+          {/* Informasi Pengiriman */}
+          <div className="grid grid-cols-2 gap-4 text-xs">
+            <div>
+              <p className="font-semibold text-zinc-600">TUJUAN PENGIRIMAN:</p>
+              <p className="font-bold text-sm text-zinc-900">{pesanan.pelanggan?.nama_toko}</p>
+              <p className="text-zinc-700">{pesanan.pelanggan?.alamat || '-'}</p>
+              <p className="text-zinc-700">Telp: {pesanan.pelanggan?.telepon || '-'}</p>
+            </div>
+            <div className="text-right space-y-1">
+              <p><strong>No. Dokumen:</strong> {pesanan.nomor}</p>
+              <p><strong>Tanggal Kirim:</strong> {formatTanggal(pesanan.dikirim_pada || new Date())}</p>
+              <p><strong>Status:</strong> Barang Resmi Diberangkatkan</p>
+            </div>
+          </div>
+
+          {/* Daftar Barang (TANPA HARGA untuk Pengemudi - PRD 11.2) */}
+          <table className="w-full text-xs border border-zinc-300">
+            <thead className="bg-zinc-100 font-bold border-b border-zinc-300">
+              <tr>
+                <th className="p-2 border-r border-zinc-300 text-center w-10">No</th>
+                <th className="p-2 border-r border-zinc-300 text-left">Kode Barang</th>
+                <th className="p-2 border-r border-zinc-300 text-left">Nama Barang</th>
+                <th className="p-2 border-r border-zinc-300 text-center w-24">Jumlah</th>
+                <th className="p-2 text-center w-20">Satuan</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-zinc-200">
+              {items.map((it, i) => (
+                <tr key={it.id}>
+                  <td className="p-2 border-r border-zinc-200 text-center">{i + 1}</td>
+                  <td className="p-2 border-r border-zinc-200 font-mono">{it.barang?.kode}</td>
+                  <td className="p-2 border-r border-zinc-200 font-medium">{it.barang?.nama}</td>
+                  <td className="p-2 border-r border-zinc-200 text-center font-bold text-sm">{it.jumlah}</td>
+                  <td className="p-2 text-center uppercase">{it.barang?.satuan}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
 
-        {/* Kolom Tanda Tangan */}
-        <div className="grid grid-cols-3 gap-6 text-center text-xs pt-8">
-          <div>
-            <p className="font-medium text-zinc-600">Diserahkan Oleh (Gudang),</p>
-            <div className="h-20" />
-            <p className="border-t border-zinc-400 pt-1 font-semibold">( ............................ )</p>
-          </div>
-          <div>
-            <p className="font-medium text-zinc-600">Pengemudi / Kurir,</p>
-            <div className="h-20" />
-            <p className="border-t border-zinc-400 pt-1 font-semibold">( ............................ )</p>
-          </div>
-          <div>
-            <p className="font-medium text-zinc-600">Diterima Oleh (Toko),</p>
-            <div className="h-20" />
-            <p className="border-t border-zinc-400 pt-1 font-semibold">( ............................ )</p>
+          {/* Kolom Tanda Tangan */}
+          <div className="grid grid-cols-3 gap-6 text-center text-xs pt-8 print:break-inside-avoid">
+            <div>
+              <p className="font-medium text-zinc-600">Diserahkan Oleh (Gudang),</p>
+              <div className="h-20" />
+              <p className="border-t border-zinc-400 pt-1 font-semibold">( ............................ )</p>
+            </div>
+            <div>
+              <p className="font-medium text-zinc-600">Pengemudi / Kurir,</p>
+              <div className="h-20" />
+              <p className="border-t border-zinc-400 pt-1 font-semibold">( ............................ )</p>
+            </div>
+            <div>
+              <p className="font-medium text-zinc-600">Diterima Oleh (Toko),</p>
+              <div className="h-20" />
+              <p className="border-t border-zinc-400 pt-1 font-semibold">( ............................ )</p>
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
+  const batasKredit = pesanan.pelanggan?.batas_kredit ?? 0;
+  const sisaBatas = Math.max(0, batasKredit - piutangBerjalan);
+
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-16">
-      {/* Header Bar */}
+    <div className="space-y-6 pb-16">
+      {/* Breadcrumb & Header Sesuai Wireframe Page 3 */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center gap-3">
           <Link
             href="/pesanan-jual"
             className="p-2 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition"
+            title="Kembali ke Pesanan Jual"
           >
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div>
+            <div className="text-xs text-zinc-500 dark:text-zinc-400 mb-0.5">
+              <Link href="/pesanan-jual" className="hover:text-blue-600 transition">
+                Pesanan Jual
+              </Link>{' '}
+              / <span className="font-mono text-zinc-700 dark:text-zinc-300">{pesanan.nomor}</span>
+            </div>
             <div className="flex items-center gap-2.5">
               <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 font-mono">
                 {pesanan.nomor}
               </h1>
               <span
-                className={`inline-flex items-center px-3 py-0.5 rounded-full text-xs font-semibold border ${badge.bgClass} ${badge.textClass} ${badge.borderClass}`}
+                className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium border ${badge.bgClass} ${badge.textClass} ${badge.borderClass}`}
               >
                 {badge.label}
               </span>
             </div>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-              Dibuat oleh <span className="font-medium">{pesanan.pembuat?.nama_lengkap || 'Pengguna'}</span> pada{' '}
-              {formatTanggalWaktu(pesanan.dibuat_pada)}
-            </p>
           </div>
         </div>
 
-        {/* Tombol Surat Jalan (Khusus status dikirim atau lunas) */}
-        {['dikirim', 'lunas'].includes(pesanan.status) && (
-          <button
-            onClick={() => setPrintMode(true)}
-            className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-200 bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-xl hover:bg-zinc-50 dark:hover:bg-zinc-750 transition"
-          >
-            <Printer className="w-4 h-4 text-zinc-500" />
-            Cetak Surat Jalan
-          </button>
-        )}
+        {/* Tombol Aksi di Header Sesuai Wireframe Page 3 */}
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Status DIKONFIRMASI Sesuai Wireframe: Batalkan (Manajer) & Tandai dikirim */}
+          {pesanan.status === 'dikonfirmasi' && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isManager) {
+                    alert('Hanya Manajer yang berhak membatalkan pesanan yang sudah dikonfirmasi (BR-08).');
+                    return;
+                  }
+                  setBatalReason('');
+                  setBatalError(null);
+                  setShowCancelModal(true);
+                }}
+                disabled={actionLoading}
+                className={`px-4 py-2 text-xs font-medium rounded-lg border transition shadow-sm ${
+                  isManager
+                    ? 'text-rose-700 dark:text-rose-300 bg-white dark:bg-zinc-800 border-zinc-300 dark:border-zinc-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer'
+                    : 'text-zinc-400 bg-zinc-100 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 cursor-not-allowed opacity-70'
+                }`}
+                title={isManager ? 'Batalkan pesanan dan kembalikan stok ke gudang' : 'Hanya Manajer yang berhak membatalkan pesanan dikonfirmasi (BR-08)'}
+              >
+                Batalkan (Manajer)
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isGudangOrManager) {
+                    alert('Hanya Staf Gudang atau Manajer yang berhak menandai pesanan telah dikirim (BR-07).');
+                    return;
+                  }
+                  handleKirim();
+                }}
+                disabled={actionLoading}
+                className={`px-4 py-2 text-xs font-semibold rounded-lg transition shadow-sm ${
+                  isGudangOrManager
+                    ? 'text-white bg-blue-600 hover:bg-blue-500 cursor-pointer'
+                    : 'text-white/80 bg-blue-400 cursor-not-allowed opacity-70'
+                }`}
+                title={isGudangOrManager ? 'Tandai pesanan telah dikirim ke pelanggan' : 'Hanya Staf Gudang atau Manajer yang berhak mengirim (BR-07)'}
+              >
+                {actionLoading ? 'Memproses...' : 'Tandai dikirim'}
+              </button>
+            </>
+          )}
+
+          {/* Status DRAF: Batalkan & Konfirmasi */}
+          {pesanan.status === 'draf' && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isSalesCreator && !isManager) {
+                    alert('Hanya pembuat pesanan atau Manajer yang berhak membatalkan draf ini.');
+                    return;
+                  }
+                  setBatalReason('Draf dibatalkan oleh pembuat');
+                  handleBatalkan();
+                }}
+                disabled={actionLoading}
+                className="px-3.5 py-1.5 text-xs font-medium text-rose-700 dark:text-rose-300 bg-white dark:bg-zinc-800 border border-rose-300 dark:border-rose-800 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition disabled:opacity-50"
+              >
+                Batalkan
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isSalesCreator && !isManager) {
+                    alert('Hanya pembuat pesanan atau Manajer yang berhak mengonfirmasi draf ini.');
+                    return;
+                  }
+                  handleKonfirmasi();
+                }}
+                disabled={actionLoading}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-lg transition shadow-sm disabled:opacity-50"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                {actionLoading ? 'Memproses...' : 'Konfirmasi'}
+              </button>
+            </>
+          )}
+
+          {/* Status DIKIRIM: Catat pelunasan (Manajer) & Surat Jalan */}
+          {pesanan.status === 'dikirim' && (
+            <>
+              <button
+                type="button"
+                onClick={() => setPrintMode(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-750 transition shadow-sm"
+              >
+                <Printer className="w-3.5 h-3.5 text-zinc-500" />
+                Surat Jalan
+              </button>
+              {isManager && (
+                <button
+                  type="button"
+                  onClick={handleLunasi}
+                  disabled={actionLoading}
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-lg transition shadow-sm disabled:opacity-50"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  {actionLoading ? 'Memproses...' : 'Catat pelunasan (Manajer)'}
+                </button>
+              )}
+            </>
+          )}
+
+          {/* Status LUNAS: Surat Jalan */}
+          {pesanan.status === 'lunas' && (
+            <button
+              type="button"
+              onClick={() => setPrintMode(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-750 transition shadow-sm"
+            >
+              <Printer className="w-3.5 h-3.5 text-zinc-500" />
+              Surat Jalan
+            </button>
+          )}
+        </div>
       </div>
 
       {errorMsg && (
-        <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 text-sm flex items-center gap-2">
-          <AlertCircle className="w-5 h-5 shrink-0" />
+        <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
           {errorMsg}
         </div>
       )}
 
       {successMsg && (
-        <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 text-emerald-700 dark:text-emerald-300 text-sm flex items-center gap-2">
-          <CheckCircle2 className="w-5 h-5 shrink-0" />
+        <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 text-emerald-700 dark:text-emerald-300 text-xs flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
           {successMsg}
         </div>
       )}
 
-      {/* Status Timeline Stepper */}
-      {pesanan.status !== 'dibatalkan' ? (
-        <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6 shadow-sm">
-          <div className="grid grid-cols-4 gap-2 text-center text-xs relative">
-            {/* Step 1: Draf */}
-            <div className="flex flex-col items-center">
-              <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold mb-1.5 shadow-sm">
-                <Check className="w-4 h-4" />
-              </div>
-              <span className="font-semibold text-zinc-900 dark:text-zinc-100">Draf</span>
-              <span className="text-[11px] text-zinc-500">{formatTanggal(pesanan.dibuat_pada)}</span>
+      {/* Grid 2 Kolom Sesuai Wireframe Page 3 */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* KOLOM KIRI (8 dari 12): Baris barang & Riwayat status */}
+        <div className="lg:col-span-8 space-y-6">
+          {/* 1. Tabel Baris barang */}
+          <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden text-xs">
+            <div className="p-3.5 border-b border-zinc-100 dark:border-zinc-800">
+              <h2 className="font-bold text-zinc-900 dark:text-zinc-100 text-sm">
+                Baris barang
+              </h2>
             </div>
 
-            {/* Step 2: Dikonfirmasi */}
-            <div className="flex flex-col items-center">
-              <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center font-bold mb-1.5 shadow-sm ${
-                  ['dikonfirmasi', 'dikirim', 'lunas'].includes(pesanan.status)
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400'
-                }`}
-              >
-                {['dikonfirmasi', 'dikirim', 'lunas'].includes(pesanan.status) ? (
-                  <Check className="w-4 h-4" />
-                ) : (
-                  '2'
-                )}
-              </div>
-              <span
-                className={`font-semibold ${
-                  ['dikonfirmasi', 'dikirim', 'lunas'].includes(pesanan.status)
-                    ? 'text-zinc-900 dark:text-zinc-100'
-                    : 'text-zinc-400'
-                }`}
-              >
-                Dikonfirmasi
-              </span>
-              <span className="text-[11px] text-zinc-500">
-                {pesanan.dikonfirmasi_pada ? formatTanggal(pesanan.dikonfirmasi_pada) : '-'}
-              </span>
-            </div>
-
-            {/* Step 3: Dikirim */}
-            <div className="flex flex-col items-center">
-              <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center font-bold mb-1.5 shadow-sm ${
-                  ['dikirim', 'lunas'].includes(pesanan.status)
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400'
-                }`}
-              >
-                {['dikirim', 'lunas'].includes(pesanan.status) ? (
-                  <Check className="w-4 h-4" />
-                ) : (
-                  '3'
-                )}
-              </div>
-              <span
-                className={`font-semibold ${
-                  ['dikirim', 'lunas'].includes(pesanan.status)
-                    ? 'text-zinc-900 dark:text-zinc-100'
-                    : 'text-zinc-400'
-                }`}
-              >
-                Dikirim
-              </span>
-              <span className="text-[11px] text-zinc-500">
-                {pesanan.dikirim_pada ? formatTanggal(pesanan.dikirim_pada) : '-'}
-              </span>
-            </div>
-
-            {/* Step 4: Lunas */}
-            <div className="flex flex-col items-center">
-              <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center font-bold mb-1.5 shadow-sm ${
-                  pesanan.status === 'lunas'
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400'
-                }`}
-              >
-                {pesanan.status === 'lunas' ? <Check className="w-4 h-4" /> : '4'}
-              </div>
-              <span
-                className={`font-semibold ${
-                  pesanan.status === 'lunas' ? 'text-zinc-900 dark:text-zinc-100' : 'text-zinc-400'
-                }`}
-              >
-                Lunas
-              </span>
-              <span className="text-[11px] text-zinc-500">
-                {pesanan.dilunasi_pada ? formatTanggal(pesanan.dilunasi_pada) : '-'}
-              </span>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="p-4 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 rounded-2xl flex items-start gap-3">
-          <XCircle className="w-6 h-6 text-rose-600 shrink-0 mt-0.5" />
-          <div className="text-sm">
-            <p className="font-bold text-rose-800 dark:text-rose-200">Pesanan Telah Dibatalkan</p>
-            <p className="text-xs text-rose-700 dark:text-rose-300 mt-1">
-              Dibatalkan pada: <strong>{formatTanggalWaktu(pesanan.dibatalkan_pada)}</strong>
-            </p>
-            <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5">
-              Alasan: <em>&ldquo;{pesanan.alasan_batal || '-'}&rdquo;</em>
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Info Pelanggan & Jatuh Tempo */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Toko */}
-        <div className="bg-white dark:bg-zinc-900 p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-2">
-          <span className="text-xs font-medium text-zinc-500 flex items-center gap-1.5">
-            <Building2 className="w-4 h-4 text-emerald-600" />
-            Toko Pelanggan
-          </span>
-          <p className="font-bold text-base text-zinc-900 dark:text-zinc-100">
-            {pesanan.pelanggan?.nama_toko}
-          </p>
-          <p className="text-xs text-zinc-600 dark:text-zinc-400">
-            {pesanan.pelanggan?.alamat || 'Alamat tidak tersedia'}
-          </p>
-          <p className="text-xs text-zinc-500">Telp: {pesanan.pelanggan?.telepon || '-'}</p>
-        </div>
-
-        {/* Pembayaran & Jatuh Tempo */}
-        <div className="bg-white dark:bg-zinc-900 p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-2">
-          <span className="text-xs font-medium text-zinc-500 flex items-center gap-1.5">
-            <Calendar className="w-4 h-4 text-emerald-600" />
-            Termin & Jatuh Tempo
-          </span>
-          <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-            Termin: {pesanan.pelanggan?.termin_hari ?? 0} Hari
-          </p>
-          {pesanan.jatuh_tempo ? (
-            <div>
-              <p className="text-xs text-zinc-500">Jatuh Tempo:</p>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-base font-bold text-zinc-900 dark:text-zinc-100">
-                  {formatTanggal(pesanan.jatuh_tempo)}
-                </span>
-                {isOverdue && (
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700">
-                    OVERDUE
-                  </span>
-                )}
-              </div>
-            </div>
-          ) : (
-            <p className="text-xs text-zinc-400 italic">Jatuh tempo terisi otomatis saat pesanan dikirim</p>
-          )}
-        </div>
-
-        {/* Ringkasan Finansial */}
-        <div className="bg-white dark:bg-zinc-900 p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-2">
-          <span className="text-xs font-medium text-zinc-500 flex items-center gap-1.5">
-            <TrendingUp className="w-4 h-4 text-emerald-600" />
-            Total Transaksi
-          </span>
-          <p className="text-2xl font-black text-emerald-600">
-            {formatRupiah(pesanan.total)}
-          </p>
-          {isManager && totalMarginRp !== null && (
-            <div className="text-xs border-t border-zinc-100 dark:border-zinc-800 pt-1.5 text-zinc-500">
-              <span>Margin Kotor: </span>
-              <strong className="text-emerald-700 dark:text-emerald-400">
-                {formatRupiah(totalMarginRp)} ({marginPersen?.toFixed(1)}%)
-              </strong>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Tabel Rincian Item */}
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6 shadow-sm space-y-4">
-        <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-          <FileText className="w-5 h-5 text-emerald-600" />
-          Rincian Barang yang Dipesan
-        </h2>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-zinc-50 dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-300 uppercase font-medium border-b border-zinc-200 dark:border-zinc-800">
-              <tr>
-                <th className="py-2.5 px-3 w-10 text-center">No</th>
-                <th className="py-2.5 px-3">Kode</th>
-                <th className="py-2.5 px-3">Nama Barang</th>
-                <th className="py-2.5 px-3 text-center">Jumlah</th>
-                <th className="py-2.5 px-3 text-right">Harga Satuan</th>
-                <th className="py-2.5 px-3 text-center">Diskon</th>
-                <th className="py-2.5 px-3 text-right">Subtotal</th>
-                {/* RAHASIA: Kolom HPP dan Margin HANYA untuk Manajer (BR-12) */}
-                {isManager && (
-                  <>
-                    <th className="py-2.5 px-3 text-right text-amber-600 dark:text-amber-400">
-                      HPP Satuan
-                    </th>
-                    <th className="py-2.5 px-3 text-right text-emerald-600 dark:text-emerald-400">
-                      Margin Baris
-                    </th>
-                  </>
-                )}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-              {items.map((it, idx) => {
-                const hppTotal = it.hpp_satuan ? it.hpp_satuan * it.jumlah : null;
-                const marginBaris = hppTotal !== null ? it.subtotal - hppTotal : null;
-
-                return (
-                  <tr key={it.id} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30">
-                    <td className="py-3 px-3 text-center text-zinc-400 font-medium">{idx + 1}</td>
-                    <td className="py-3 px-3 font-mono text-zinc-600 dark:text-zinc-400">
-                      {it.barang?.kode}
-                    </td>
-                    <td className="py-3 px-3 font-medium text-zinc-900 dark:text-zinc-100">
-                      {it.barang?.nama}
-                    </td>
-                    <td className="py-3 px-3 text-center font-bold text-zinc-900 dark:text-zinc-100">
-                      {it.jumlah} <span className="font-normal text-zinc-500 uppercase">{it.barang?.satuan}</span>
-                    </td>
-                    <td className="py-3 px-3 text-right font-medium text-zinc-800 dark:text-zinc-200">
-                      {formatRupiah(it.harga_satuan)}
-                    </td>
-                    <td className="py-3 px-3 text-center text-zinc-600 dark:text-zinc-400">
-                      {it.diskon_persen > 0 ? `${it.diskon_persen}%` : '-'}
-                    </td>
-                    <td className="py-3 px-3 text-right font-bold text-zinc-900 dark:text-zinc-100">
-                      {formatRupiah(it.subtotal)}
-                    </td>
-
-                    {/* HPP & Margin khusus Manajer */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-zinc-50 dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-300 font-semibold border-b border-zinc-200 dark:border-zinc-800">
+                  <tr>
+                    <th className="py-2.5 px-3">Kode</th>
+                    <th className="py-2.5 px-3">Barang</th>
+                    <th className="py-2.5 px-3">Jumlah</th>
+                    <th className="py-2.5 px-3 text-right">Harga satuan</th>
+                    <th className="py-2.5 px-3 text-center">Diskon</th>
+                    <th className="py-2.5 px-3 text-right">Subtotal</th>
+                    {/* Kolom biru (harga pokok, margin) khusus Manajer */}
                     {isManager && (
                       <>
-                        <td className="py-3 px-3 text-right text-amber-700 dark:text-amber-400 font-mono">
-                          {it.hpp_satuan ? formatRupiah(it.hpp_satuan) : '-'}
+                        <th className="py-2.5 px-3 text-right bg-blue-50/80 dark:bg-blue-950/40 text-blue-900 dark:text-blue-300 font-semibold border-l border-blue-100 dark:border-blue-900">
+                          Harga pokok
+                        </th>
+                        <th className="py-2.5 px-3 text-right bg-blue-50/80 dark:bg-blue-950/40 text-blue-900 dark:text-blue-300 font-semibold border-l border-blue-100 dark:border-blue-900">
+                          Margin
+                        </th>
+                      </>
+                    )}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                  {items.map((it) => {
+                    const hppTotal = it.hpp_satuan ? it.hpp_satuan * it.jumlah : null;
+                    const marginBaris = hppTotal !== null ? it.subtotal - hppTotal : null;
+
+                    return (
+                      <tr key={it.id} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30">
+                        <td className="py-2.5 px-3 font-mono font-medium text-zinc-700 dark:text-zinc-300 whitespace-nowrap">
+                          {it.barang?.kode}
                         </td>
-                        <td className="py-3 px-3 text-right text-emerald-700 dark:text-emerald-400 font-semibold font-mono">
-                          {marginBaris !== null ? formatRupiah(marginBaris) : '-'}
+                        <td className="py-2.5 px-3 font-medium text-zinc-900 dark:text-zinc-100">
+                          {it.barang?.nama}
+                        </td>
+                        <td className="py-2.5 px-3 text-zinc-800 dark:text-zinc-200 whitespace-nowrap">
+                          {it.jumlah} <span className="text-zinc-500 lowercase">{it.barang?.satuan || 'dus'}</span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right text-zinc-800 dark:text-zinc-200 whitespace-nowrap">
+                          {formatRupiah(it.harga_satuan)}
+                        </td>
+                        <td className="py-2.5 px-3 text-center text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
+                          {it.diskon_persen}%
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-medium text-zinc-900 dark:text-zinc-100 whitespace-nowrap">
+                          {formatRupiah(it.subtotal)}
+                        </td>
+
+                        {/* Kolom biru HPP & Margin khusus Manajer */}
+                        {isManager && (
+                          <>
+                            <td className="py-2.5 px-3 text-right font-mono bg-blue-50/30 dark:bg-blue-950/20 text-blue-900 dark:text-blue-300 border-l border-blue-100/60 dark:border-blue-900/40 whitespace-nowrap">
+                              {it.hpp_satuan ? formatRupiah(it.hpp_satuan) : '-'}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono font-medium bg-blue-50/30 dark:bg-blue-950/20 text-blue-900 dark:text-blue-300 border-l border-blue-100/60 dark:border-blue-900/40 whitespace-nowrap">
+                              {marginBaris !== null ? formatRupiah(marginBaris) : '-'}
+                            </td>
+                          </>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                {/* Baris Total Sesuai Wireframe Page 3 */}
+                <tfoot className="border-t border-zinc-200 dark:border-zinc-700 font-bold bg-zinc-50/60 dark:bg-zinc-800/40">
+                  <tr>
+                    <td colSpan={5} className="py-2.5 px-3 text-right text-zinc-900 dark:text-zinc-100">
+                      Total
+                    </td>
+                    <td className="py-2.5 px-3 text-right text-zinc-900 dark:text-zinc-100 whitespace-nowrap font-bold">
+                      {formatRupiah(pesanan.total)}
+                    </td>
+                    {isManager && (
+                      <>
+                        <td className="py-2.5 px-3 bg-blue-50/50 dark:bg-blue-950/30 border-l border-blue-100 dark:border-blue-900" />
+                        <td className="py-2.5 px-3 text-right font-mono font-bold text-blue-900 dark:text-blue-200 bg-blue-50/50 dark:bg-blue-950/30 border-l border-blue-100 dark:border-blue-900 whitespace-nowrap">
+                          {totalMarginRp !== null ? formatRupiah(totalMarginRp) : '-'}
                         </td>
                       </>
                     )}
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                </tfoot>
+              </table>
+            </div>
+
+            {/* Catatan Keterangan Wireframe Page 3 */}
+            <div className="p-3 bg-zinc-50/60 dark:bg-zinc-800/40 border-t border-zinc-100 dark:border-zinc-800/60 text-[11px] text-zinc-500 dark:text-zinc-400">
+              Kolom biru (harga pokok, margin) hanya tampil untuk Manajer dan diambil lewat fungsi khusus Manajer.{pesanan.status !== 'draf' ? ' Isi baris terkunci karena status bukan draf.' : ''}
+            </div>
+          </div>
+
+          {/* 2. Tabel Riwayat status Sesuai Wireframe Page 3 */}
+          <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden text-xs">
+            <div className="p-3.5 border-b border-zinc-100 dark:border-zinc-800">
+              <h2 className="font-bold text-zinc-900 dark:text-zinc-100 text-sm">
+                Riwayat status
+              </h2>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-zinc-50 dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-300 font-semibold border-b border-zinc-200 dark:border-zinc-800">
+                  <tr>
+                    <th className="py-2.5 px-3 w-40">Waktu</th>
+                    <th className="py-2.5 px-3">Status</th>
+                    <th className="py-2.5 px-3">Oleh</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                  {/* Baris Draf */}
+                  <tr>
+                    <td className="py-2.5 px-3 whitespace-nowrap text-zinc-600 dark:text-zinc-400">
+                      {formatTanggalWaktu(pesanan.dibuat_pada)}
+                    </td>
+                    <td className="py-2.5 px-3 font-medium text-zinc-800 dark:text-zinc-200">
+                      draf dibuat
+                    </td>
+                    <td className="py-2.5 px-3 text-zinc-600 dark:text-zinc-400">
+                      {pesanan.pembuat?.nama_lengkap || 'Staf Penjualan'}
+                    </td>
+                  </tr>
+
+                  {/* Baris Dikonfirmasi */}
+                  {pesanan.dikonfirmasi_pada && (
+                    <tr>
+                      <td className="py-2.5 px-3 whitespace-nowrap text-zinc-600 dark:text-zinc-400">
+                        {formatTanggalWaktu(pesanan.dikonfirmasi_pada)}
+                      </td>
+                      <td className="py-2.5 px-3 font-medium text-zinc-800 dark:text-zinc-200">
+                        dikonfirmasi, stok dikurangi
+                      </td>
+                      <td className="py-2.5 px-3 text-zinc-600 dark:text-zinc-400">
+                        {pesanan.pembuat?.nama_lengkap || 'Staf Penjualan'}
+                      </td>
+                    </tr>
+                  )}
+
+                  {/* Baris Dikirim */}
+                  {pesanan.dikirim_pada && (
+                    <tr>
+                      <td className="py-2.5 px-3 whitespace-nowrap text-zinc-600 dark:text-zinc-400">
+                        {formatTanggalWaktu(pesanan.dikirim_pada)}
+                      </td>
+                      <td className="py-2.5 px-3 font-medium text-zinc-800 dark:text-zinc-200">
+                        dikirim {pesanan.jatuh_tempo ? `(jatuh tempo ${formatTanggal(pesanan.jatuh_tempo)})` : ''}
+                      </td>
+                      <td className="py-2.5 px-3 text-zinc-600 dark:text-zinc-400">
+                        Staf Gudang
+                      </td>
+                    </tr>
+                  )}
+
+                  {/* Baris Lunas */}
+                  {pesanan.dilunasi_pada && (
+                    <tr>
+                      <td className="py-2.5 px-3 whitespace-nowrap text-zinc-600 dark:text-zinc-400">
+                        {formatTanggalWaktu(pesanan.dilunasi_pada)}
+                      </td>
+                      <td className="py-2.5 px-3 font-medium text-emerald-700 dark:text-emerald-400">
+                        lunas (pembayaran diterima)
+                      </td>
+                      <td className="py-2.5 px-3 text-zinc-600 dark:text-zinc-400">
+                        Manajer
+                      </td>
+                    </tr>
+                  )}
+
+                  {/* Baris Batal */}
+                  {pesanan.status === 'dibatalkan' && (
+                    <tr className="bg-rose-50/40 dark:bg-rose-950/20">
+                      <td className="py-2.5 px-3 whitespace-nowrap text-rose-700 dark:text-rose-400">
+                        {formatTanggalWaktu(pesanan.dibatalkan_pada || pesanan.dibuat_pada)}
+                      </td>
+                      <td className="py-2.5 px-3 font-medium text-rose-700 dark:text-rose-400">
+                        dibatalkan {pesanan.alasan_batal ? `(alasan: ${pesanan.alasan_batal})` : ''}
+                      </td>
+                      <td className="py-2.5 px-3 text-rose-700 dark:text-rose-400">
+                        {isManager ? 'Manajer' : (pesanan.pembuat?.nama_lengkap || 'Pengguna')}
+                      </td>
+                    </tr>
+                  )}
+
+                  {/* Baris "berikutnya" sesuai Wireframe Page 3 */}
+                  {pesanan.status !== 'lunas' && pesanan.status !== 'dibatalkan' && (
+                    <tr className="text-zinc-400 dark:text-zinc-500 italic bg-zinc-50/40 dark:bg-zinc-850/30">
+                      <td className="py-2.5 px-3 font-normal">berikutnya</td>
+                      <td className="py-2.5 px-3 font-normal" colSpan={2}>
+                        {pesanan.status === 'draf' && 'dikonfirmasi (Staf Penjualan atau Manajer)'}
+                        {pesanan.status === 'dikonfirmasi' && 'dikirim (Staf Gudang atau Manajer)'}
+                        {pesanan.status === 'dikirim' && 'catat pelunasan (Manajer)'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
-      </div>
 
-      {/* Action Buttons Panel Sesuai Hak Akses & Status (BR-07, BR-08) */}
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="text-xs text-zinc-500">
-          Hak aksi status: Draf (Penjualan/Manajer), Kirim (Gudang/Manajer), Pelunasan (Manajer).
-        </div>
+        {/* KOLOM KANAN (4 dari 12): Kartu Pelanggan & Tabel Tombol per peran */}
+        <div className="lg:col-span-4 space-y-6">
+          {/* 1. Kartu Pelanggan Sesuai Wireframe Page 3 */}
+          <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-4 shadow-sm space-y-3 text-xs">
+            <div>
+              <h3 className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+                Pelanggan
+              </h3>
+              <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100 mt-1">
+                {pesanan.pelanggan?.nama_toko || '-'}
+              </h2>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 leading-relaxed">
+                {pesanan.pelanggan?.kode} · {pesanan.pelanggan?.alamat || 'Alamat tidak tersedia'}
+              </p>
+            </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Status DRAF: Konfirmasi & Batalkan */}
-          {pesanan.status === 'draf' && (isSalesCreator || isManager) && (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  setBatalReason('Draf dibatalkan oleh pembuat');
-                  handleBatalkan();
-                }}
-                disabled={actionLoading}
-                className="px-4 py-2 text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 rounded-xl hover:bg-rose-100 transition disabled:opacity-50"
-              >
-                Batalkan Draf
-              </button>
-              <button
-                type="button"
-                onClick={handleKonfirmasi}
-                disabled={actionLoading}
-                className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-xl transition shadow-sm disabled:opacity-50"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                {actionLoading ? 'Memproses...' : 'Konfirmasi Pesanan (Kurangi Stok)'}
-              </button>
-            </>
-          )}
+            <div className="divide-y divide-zinc-100 dark:divide-zinc-800 text-xs pt-1 border-t border-zinc-100 dark:border-zinc-800">
+              <div className="flex items-center justify-between py-2">
+                <span className="text-zinc-500 dark:text-zinc-400">Termin bayar</span>
+                <span className="font-medium text-zinc-800 dark:text-zinc-200">
+                  {pesanan.pelanggan?.termin_hari ?? 0} hari
+                </span>
+              </div>
+              <div className="flex items-center justify-between py-2">
+                <span className="text-zinc-500 dark:text-zinc-400">Batas kredit</span>
+                <span className="font-medium text-zinc-800 dark:text-zinc-200">
+                  {formatRupiah(batasKredit)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between py-2">
+                <span className="text-zinc-500 dark:text-zinc-400">Piutang berjalan</span>
+                <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                  {formatRupiah(piutangBerjalan)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between py-2">
+                <span className="text-zinc-500 dark:text-zinc-400">Sisa batas</span>
+                <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                  {formatRupiah(sisaBatas)}
+                </span>
+              </div>
+            </div>
+          </div>
 
-          {/* Status DIKONFIRMASI: Kirim (Gudang/Manajer) & Batalkan (Manajer Saja) */}
-          {pesanan.status === 'dikonfirmasi' && (
-            <>
-              {isManager && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setBatalReason('');
-                    setBatalError(null);
-                    setShowCancelModal(true);
-                  }}
-                  disabled={actionLoading}
-                  className="px-4 py-2 text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 rounded-xl hover:bg-rose-100 transition disabled:opacity-50"
-                >
-                  Batalkan Pesanan (Kembalikan Stok)
-                </button>
-              )}
-              {isGudangOrManager && (
-                <button
-                  type="button"
-                  onClick={handleKirim}
-                  disabled={actionLoading}
-                  className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-xl transition shadow-sm disabled:opacity-50"
-                >
-                  <Truck className="w-4 h-4" />
-                  {actionLoading ? 'Memproses...' : 'Kirim Pesanan (Muat Truk)'}
-                </button>
-              )}
-            </>
-          )}
+          {/* 2. Tabel Tombol per peran Sesuai Wireframe Page 3 */}
+          <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden text-xs">
+            <div className="p-3.5 border-b border-zinc-100 dark:border-zinc-800">
+              <h3 className="font-bold text-zinc-900 dark:text-zinc-100 text-xs">
+                Tombol per peran
+              </h3>
+            </div>
 
-          {/* Status DIKIRIM: Catat Pelunasan (Manajer Saja) */}
-          {pesanan.status === 'dikirim' && isManager && (
-            <button
-              type="button"
-              onClick={handleLunasi}
-              disabled={actionLoading}
-              className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-xl transition shadow-sm disabled:opacity-50"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              {actionLoading ? 'Memproses...' : 'Catat Pelunasan Pembayaran'}
-            </button>
-          )}
-
-          {/* Status Akhir: Lunas / Dibatalkan */}
-          {pesanan.status === 'lunas' && (
-            <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-100 rounded-xl">
-              <Check className="w-4 h-4" />
-              Pesanan Lunas Sepenuhnya
-            </span>
-          )}
-
-          {pesanan.status === 'dibatalkan' && (
-            <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-rose-800 bg-rose-100 rounded-xl">
-              <XCircle className="w-4 h-4" />
-              Status Akhir: Dibatalkan
-            </span>
-          )}
+            <table className="w-full text-left text-xs">
+              <thead className="bg-zinc-50 dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-400 font-semibold border-b border-zinc-200 dark:border-zinc-800">
+                <tr>
+                  <th className="py-2 px-3 w-28">Status</th>
+                  <th className="py-2 px-3">Tombol</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                <tr className={pesanan.status === 'draf' ? 'bg-blue-50/40 dark:bg-blue-950/20 font-medium' : ''}>
+                  <td className="py-2 px-3 font-mono text-zinc-700 dark:text-zinc-300">draf</td>
+                  <td className="py-2 px-3 text-zinc-600 dark:text-zinc-400">
+                    Konfirmasi, Batalkan (pembuat atau Manajer)
+                  </td>
+                </tr>
+                <tr className={pesanan.status === 'dikonfirmasi' ? 'bg-blue-50/40 dark:bg-blue-950/20 font-medium' : ''}>
+                  <td className="py-2 px-3 font-mono text-zinc-700 dark:text-zinc-300">dikonfirmasi</td>
+                  <td className="py-2 px-3 text-zinc-600 dark:text-zinc-400">
+                    Tandai dikirim (Gudang, Manajer); Batalkan (Manajer)
+                  </td>
+                </tr>
+                <tr className={pesanan.status === 'dikirim' ? 'bg-blue-50/40 dark:bg-blue-950/20 font-medium' : ''}>
+                  <td className="py-2 px-3 font-mono text-zinc-700 dark:text-zinc-300">dikirim</td>
+                  <td className="py-2 px-3 text-zinc-600 dark:text-zinc-400">
+                    Catat pelunasan (Manajer)
+                  </td>
+                </tr>
+                <tr className={['lunas', 'dibatalkan'].includes(pesanan.status) ? 'bg-blue-50/40 dark:bg-blue-950/20 font-medium' : ''}>
+                  <td className="py-2 px-3 font-mono text-zinc-700 dark:text-zinc-300">lunas, dibatalkan</td>
+                  <td className="py-2 px-3 text-zinc-500 italic">Tidak ada</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
