@@ -50,9 +50,10 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
   const isAuthRoute = pathname.startsWith('/login');
+  const isApiRoute = pathname.startsWith('/api');
 
   // 1. Pengguna belum masuk dan mencoba membuka halaman aplikasi yang dilindungi
-  if (!user && !isAuthRoute && pathname !== '/') {
+  if (!user && !isAuthRoute && !isApiRoute && pathname !== '/') {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     url.searchParams.set('next', pathname);

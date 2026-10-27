@@ -4,12 +4,12 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '@/components/auth-provider';
 import { createClient } from '@/lib/supabase/client';
 import { formatPeran } from '@/lib/peran';
-import { 
-  TrendingUp, 
-  DollarSign, 
-  Clock, 
-  AlertTriangle, 
-  Package, 
+import {
+  TrendingUp,
+  DollarSign,
+  Clock,
+  AlertTriangle,
+  Package,
   ArrowUpRight,
   CheckCircle2,
   RefreshCw,
@@ -429,31 +429,28 @@ export default function DashboardPage() {
         <div className="flex items-center gap-2 p-1.5 bg-slate-200/70 rounded-xl w-fit">
           <button
             onClick={() => setActiveManagerTab('manajer')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${
-              activeManagerTab === 'manajer'
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${activeManagerTab === 'manajer'
                 ? 'bg-white text-slate-900 shadow-sm'
                 : 'text-slate-600 hover:text-slate-900'
-            }`}
+              }`}
           >
             Dashboard Manajer (Omzet & Margin)
           </button>
           <button
             onClick={() => setActiveManagerTab('penjualan')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${
-              activeManagerTab === 'penjualan'
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${activeManagerTab === 'penjualan'
                 ? 'bg-white text-slate-900 shadow-sm'
                 : 'text-slate-600 hover:text-slate-900'
-            }`}
+              }`}
           >
             Perspektif Penjualan
           </button>
           <button
             onClick={() => setActiveManagerTab('gudang')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${
-              activeManagerTab === 'gudang'
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${activeManagerTab === 'gudang'
                 ? 'bg-white text-slate-900 shadow-sm'
                 : 'text-slate-600 hover:text-slate-900'
-            }`}
+              }`}
           >
             Perspektif Gudang
           </button>
@@ -544,11 +541,10 @@ export default function DashboardPage() {
                     Tagihan piutang berjalan yang mendekati atau telah lewat jatuh tempo
                   </p>
                 </div>
-                <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                  salesMetrics.tagihanJatuhTempo.filter(t => t.isOverdue).length > 0
+                <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${salesMetrics.tagihanJatuhTempo.filter(t => t.isOverdue).length > 0
                     ? 'bg-rose-100 text-rose-700'
                     : 'bg-slate-100 text-slate-600'
-                }`}>
+                  }`}>
                   {salesMetrics.tagihanJatuhTempo.length} Tagihan
                 </span>
               </div>
@@ -562,18 +558,17 @@ export default function DashboardPage() {
                           <p className="font-bold text-slate-900 truncate">
                             {tagihan.pelanggan?.nama_toko || 'Toko Pelanggan'}
                           </p>
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            tagihan.isOverdue
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${tagihan.isOverdue
                               ? 'bg-rose-100 text-rose-700'
                               : tagihan.isToday
-                              ? 'bg-amber-100 text-amber-700'
-                              : 'bg-slate-100 text-slate-600'
-                          }`}>
+                                ? 'bg-amber-100 text-amber-700'
+                                : 'bg-slate-100 text-slate-600'
+                            }`}>
                             {tagihan.isOverdue
                               ? `Lewat ${tagihan.diffDays} hari`
                               : tagihan.isToday
-                              ? 'Jatuh tempo hari ini'
-                              : `Tempo ${Math.abs(tagihan.diffDays)} hari lagi`}
+                                ? 'Jatuh tempo hari ini'
+                                : `Tempo ${Math.abs(tagihan.diffDays)} hari lagi`}
                           </span>
                         </div>
 
@@ -697,64 +692,64 @@ export default function DashboardPage() {
       {effectiveRole === 'gudang' && (
         <div className="space-y-8">
           {/* 3 KARTU KPI UTAMA GUDANG */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {/* KPI 1: Pesanan Siap Kirim */}
-            <div className="bg-white p-6 rounded-2xl border border-blue-200 bg-gradient-to-br from-white to-blue-50/30 shadow-sm hover:shadow transition">
-              <div className="flex items-center justify-between text-blue-600 mb-2">
-                <span className="text-xs font-bold uppercase tracking-wider">
+            <div className="bg-white p-5 rounded-2xl border border-blue-200 bg-blue-50/20 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-blue-800">
                   Pesanan Siap Kirim
-                </span>
-                <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center">
-                  <Truck className="w-4 h-4" />
-                </div>
+                </p>
+                <p className="text-2xl font-bold text-blue-900 mt-1">
+                  {warehouseMetrics.siapKirimCount} Pesanan
+                </p>
+                <p className="text-xs text-blue-600 mt-0.5 font-medium">
+                  Dikonfirmasi · Perlu surat jalan
+                </p>
               </div>
-              <p className="text-3xl font-bold text-blue-900">
-                {warehouseMetrics.siapKirimCount}
-              </p>
-              <p className="text-xs text-blue-600 mt-1 font-medium">
-                Dikonfirmasi · Perlu pengiriman & surat jalan
-              </p>
+              <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                <Truck className="w-5 h-5" />
+              </div>
             </div>
 
             {/* KPI 2: Stok Menipis */}
-            <div className="bg-white p-6 rounded-2xl border border-rose-200 bg-gradient-to-br from-white to-rose-50/30 shadow-sm hover:shadow transition">
-              <div className="flex items-center justify-between text-rose-600 mb-2">
-                <span className="text-xs font-bold uppercase tracking-wider">
+            <div className="bg-white p-5 rounded-2xl border border-rose-200 bg-rose-50/20 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-rose-700">
                   Stok Menipis & Habis
-                </span>
-                <div className="w-8 h-8 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center">
-                  <AlertTriangle className="w-4 h-4" />
-                </div>
+                </p>
+                <p className="text-2xl font-bold text-rose-700 mt-1">
+                  {warehouseMetrics.stokMenipisCount} Barang
+                </p>
+                <p className="text-xs text-rose-600 mt-0.5 font-medium">
+                  Kuantitas fisik ≤ batas minimum
+                </p>
               </div>
-              <p className="text-3xl font-bold text-rose-900">
-                {warehouseMetrics.stokMenipisCount}
-              </p>
-              <p className="text-xs text-rose-600 mt-1 font-medium">
-                Stok fisik ≤ batas stok minimum
-              </p>
+              <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
             </div>
 
             {/* KPI 3: Pembelian Menunggu Barang */}
-            <div className="bg-white p-6 rounded-2xl border border-emerald-200 bg-gradient-to-br from-white to-emerald-50/30 shadow-sm hover:shadow transition">
-              <div className="flex items-center justify-between text-emerald-600 mb-2">
-                <span className="text-xs font-bold uppercase tracking-wider">
+            <div className="bg-white p-5 rounded-2xl border border-emerald-200 bg-emerald-50/20 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-emerald-800">
                   Pembelian Menunggu Barang
-                </span>
-                <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center">
-                  <Package className="w-4 h-4" />
-                </div>
+                </p>
+                <p className="text-2xl font-bold text-emerald-800 mt-1">
+                  {warehouseMetrics.menungguBarangCount} PO
+                </p>
+                <p className="text-xs text-emerald-600 mt-0.5 font-medium">
+                  Disetujui · Siap penerimaan
+                </p>
               </div>
-              <p className="text-3xl font-bold text-emerald-900">
-                {warehouseMetrics.menungguBarangCount}
-              </p>
-              <p className="text-xs text-emerald-600 mt-1 font-medium">
-                PO disetujui Manajer · Menunggu fisik datang
-              </p>
+              <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                <Package className="w-5 h-5" />
+              </div>
             </div>
           </div>
 
           {/* 3 BAGIAN OPERASIONAL GUDANG */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* BAGIAN 1: PESANAN SIAP KIRIM */}
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
               <div className="flex items-center justify-between pb-4 border-b border-slate-100">
@@ -775,9 +770,9 @@ export default function DashboardPage() {
                 </Link>
               </div>
 
-              <div className="divide-y divide-slate-100 flex-1 overflow-y-auto max-h-[460px] mt-2 text-xs">
+              <div className="divide-y divide-slate-100 flex-1 scrollbar-none mt-2 text-xs">
                 {warehouseMetrics.pesananSiapKirim.length > 0 ? (
-                  warehouseMetrics.pesananSiapKirim.map((po) => (
+                  warehouseMetrics.pesananSiapKirim.slice(0, 4).map((po) => (
                     <div key={po.id} className="py-3 flex flex-col gap-2">
                       <div className="flex items-start justify-between">
                         <div>
@@ -837,9 +832,9 @@ export default function DashboardPage() {
                 </Link>
               </div>
 
-              <div className="divide-y divide-slate-100 flex-1 overflow-y-auto max-h-[460px] mt-2 text-xs">
+              <div className="divide-y divide-slate-100 flex-1 scrollbar-none mt-2 text-xs">
                 {warehouseMetrics.stokMenipis.length > 0 ? (
-                  warehouseMetrics.stokMenipis.map((item) => (
+                  warehouseMetrics.stokMenipis.slice(0, 4).map((item) => (
                     <div key={item.id} className="py-2.5 flex items-center justify-between gap-2">
                       <div className="min-w-0 pr-1">
                         <p className="font-semibold text-slate-800 truncate">{item.nama}</p>
@@ -848,11 +843,10 @@ export default function DashboardPage() {
 
                       <div className="text-right flex-shrink-0 flex items-center gap-2">
                         <div>
-                          <span className={`font-bold px-2 py-0.5 rounded text-xs ${
-                            item.stok === 0
+                          <span className={`font-bold px-2 py-0.5 rounded text-xs ${item.stok === 0
                               ? 'bg-red-100 text-red-700 font-black'
                               : 'bg-amber-100 text-amber-700'
-                          }`}>
+                            }`}>
                             {item.stok} {item.satuan}
                           </span>
                           <p className="text-[10px] text-slate-400 mt-0.5">Min: {item.stok_minimum}</p>
@@ -897,9 +891,9 @@ export default function DashboardPage() {
                 </Link>
               </div>
 
-              <div className="divide-y divide-slate-100 flex-1 overflow-y-auto max-h-[460px] mt-2 text-xs">
+              <div className="divide-y divide-slate-100 flex-1 scrollbar-none mt-2 text-xs">
                 {warehouseMetrics.pembelianMenungguBarang.length > 0 ? (
-                  warehouseMetrics.pembelianMenungguBarang.map((po) => (
+                  warehouseMetrics.pembelianMenungguBarang.slice(0, 4).map((po) => (
                     <div key={po.id} className="py-3 flex flex-col gap-2">
                       <div className="flex items-start justify-between">
                         <div>
@@ -1055,8 +1049,8 @@ export default function DashboardPage() {
                   const marginHeight = bar.margin > 0 ? Math.max((bar.margin / managerMetrics.maxChartVal) * 100, 5) : 0;
 
                   return (
-                    <div 
-                      key={idx} 
+                    <div
+                      key={idx}
                       className="flex-1 flex flex-col items-center gap-1 h-full justify-end group cursor-pointer relative"
                       title={`Minggu ${bar.tgl} · Omzet: ${formatRupiah(bar.omzet)} · Margin: ${formatRupiah(bar.margin)} (${bar.transaksiCount} pesanan)`}
                     >

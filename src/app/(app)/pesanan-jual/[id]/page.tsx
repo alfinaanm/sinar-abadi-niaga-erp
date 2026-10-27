@@ -94,8 +94,11 @@ export default function DetailPesananJualPage({
   const [batalReason, setBatalReason] = useState<string>('');
   const [batalError, setBatalError] = useState<string | null>(null);
 
-  // Surat Jalan Cetak View
+  // Surat Jalan Cetak View & Alamat Pengiriman
   const [printMode, setPrintMode] = useState<boolean>(false);
+  const [alamatPengiriman, setAlamatPengiriman] = useState<string>('');
+  const [isEditingAlamat, setIsEditingAlamat] = useState<boolean>(false);
+  const [savingAlamat, setSavingAlamat] = useState<boolean>(false);
 
   const fetchDetail = async () => {
     try {
@@ -128,7 +131,26 @@ export default function DetailPesananJualPage({
 
       if (pjErr) throw pjErr;
       const orderData = pj as unknown as PesananDetail;
+
+      // Fallback: Jika data relasi pelanggan kosong (misal karena RLS Supabase pada Staf Gudang)
+      if (!orderData.pelanggan || !orderData.pelanggan.alamat) {
+        try {
+          const sjRes = await fetch(`/api/pesanan-jual/${resolvedParams.id}/surat-jalan`);
+          if (sjRes.ok) {
+            const sjJson = await sjRes.json();
+            if (sjJson.pelanggan) {
+              orderData.pelanggan = sjJson.pelanggan;
+            }
+          }
+        } catch (sjErr) {
+          console.warn('Fallback pelanggan surat jalan:', sjErr);
+        }
+      }
+
       setPesanan(orderData);
+      if (orderData.pelanggan?.alamat) {
+        setAlamatPengiriman(orderData.pelanggan.alamat);
+      }
 
       // Hitung piutang berjalan untuk kartu Pelanggan sesuai wireframe
       if (orderData.pelanggan_id) {
@@ -343,6 +365,48 @@ export default function DetailPesananJualPage({
   const totalMarginRp = isManager && totalHPP > 0 ? pesanan.total - totalHPP : null;
   const marginPersen = totalMarginRp !== null && pesanan.total > 0 ? (totalMarginRp / pesanan.total) * 100 : null;
 
+  // Handler Buka & Simpan Alamat Surat Jalan
+  const handleOpenPrintMode = () => {
+    if (pesanan?.pelanggan?.alamat && !alamatPengiriman) {
+      setAlamatPengiriman(pesanan.pelanggan.alamat);
+    }
+    setPrintMode(true);
+  };
+
+  const handleSaveAlamat = async () => {
+    try {
+      setSavingAlamat(true);
+      const res = await fetch(`/api/pesanan-jual/${resolvedParams.id}/surat-jalan`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ alamat: alamatPengiriman }),
+      });
+      const data = await res.json();
+      if (data.success && data.pelanggan) {
+        setPesanan((prev) =>
+          prev
+            ? {
+                ...prev,
+                pelanggan: {
+                  ...prev.pelanggan!,
+                  ...data.pelanggan,
+                  alamat: data.pelanggan.alamat,
+                },
+              }
+            : null
+        );
+        setIsEditingAlamat(false);
+      } else {
+        throw new Error(data.error || 'Gagal menyimpan alamat');
+      }
+    } catch (err: unknown) {
+      console.error(err);
+      alert(err instanceof Error ? err.message : 'Gagal menyimpan alamat');
+    } finally {
+      setSavingAlamat(false);
+    }
+  };
+
   // Mode Cetak Surat Jalan (BR Nilai Tambah 11.2)
   if (printMode) {
     return (
@@ -352,7 +416,7 @@ export default function DetailPesananJualPage({
           <button
             type="button"
             onClick={() => setPrintMode(false)}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white px-3 py-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white px-3 py-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" /> Kembali ke Detail
           </button>
@@ -361,7 +425,7 @@ export default function DetailPesananJualPage({
             <button
               type="button"
               onClick={() => window.print()}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-500 shadow transition active:scale-95"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-500 shadow transition active:scale-95 cursor-pointer"
             >
               <Printer className="w-4 h-4" /> Cetak Sekarang
             </button>
@@ -383,14 +447,67 @@ export default function DetailPesananJualPage({
           <div className="grid grid-cols-2 gap-4 text-xs">
             <div>
               <p className="font-semibold text-zinc-600">TUJUAN PENGIRIMAN:</p>
-              <p className="font-bold text-sm text-zinc-900">{pesanan.pelanggan?.nama_toko}</p>
-              <p className="text-zinc-700">{pesanan.pelanggan?.alamat || '-'}</p>
-              <p className="text-zinc-700">Telp: {pesanan.pelanggan?.telepon || '-'}</p>
+              <p className="font-bold text-sm text-zinc-900">{pesanan.pelanggan?.nama_toko || 'Toko Pelanggan'}</p>
+              
+              {/* Tampilan Layar (Bisa langsung diinput / diedit bila kosong) */}
+              <div className="print:hidden mt-1">
+                {isEditingAlamat ? (
+                  <div className="space-y-1.5 p-2 bg-slate-50 border border-blue-200 rounded-lg">
+                    <label className="text-[10px] font-bold text-blue-900 uppercase tracking-wider block">
+                      Input / Ubah Alamat Pengiriman Toko:
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={alamatPengiriman}
+                      onChange={(e) => setAlamatPengiriman(e.target.value)}
+                      placeholder="Masukkan alamat lengkap toko pengiriman..."
+                      className="w-full p-2 text-xs border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 focus:outline-none bg-white text-slate-800"
+                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSaveAlamat}
+                        disabled={savingAlamat}
+                        className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-[11px] rounded shadow-sm disabled:opacity-50 cursor-pointer"
+                      >
+                        {savingAlamat ? 'Menyimpan...' : 'Simpan ke Profil Pelanggan'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingAlamat(false)}
+                        className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 text-[11px] rounded font-medium cursor-pointer"
+                      >
+                        Gunakan untuk Cetak Ini Saja
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-2 mt-0.5">
+                    <p className={`text-xs ${alamatPengiriman || pesanan.pelanggan?.alamat ? 'text-zinc-700' : 'text-rose-600 font-medium italic'}`}>
+                      {alamatPengiriman || pesanan.pelanggan?.alamat || '⚠️ Alamat toko kosong / belum terinput'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingAlamat(true)}
+                      className="text-blue-600 hover:text-blue-700 text-[11px] font-semibold underline shrink-0 cursor-pointer"
+                    >
+                      {alamatPengiriman || pesanan.pelanggan?.alamat ? 'Ubah' : 'Input Alamat'}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Tampilan Cetak Kertas Resmi (Mencetak teks alamat yang bersih tanpa tombol/border) */}
+              <p className="hidden print:block text-zinc-800 text-xs mt-0.5 leading-relaxed">
+                {alamatPengiriman || pesanan.pelanggan?.alamat || '-'}
+              </p>
+
+              <p className="text-zinc-700 mt-1">Telp: {pesanan.pelanggan?.telepon || '-'}</p>
             </div>
             <div className="text-right space-y-1">
               <p><strong>No. Dokumen:</strong> {pesanan.nomor}</p>
               <p><strong>Tanggal Kirim:</strong> {formatTanggal(pesanan.dikirim_pada || new Date())}</p>
-              <p><strong>Status:</strong> Barang Resmi Diberangkatkan</p>
+              <p><strong>Status:</strong> {pesanan.status === 'dikonfirmasi' ? 'Persiapan Pengiriman' : 'Barang Resmi Diberangkatkan'}</p>
             </div>
           </div>
 
@@ -478,9 +595,19 @@ export default function DetailPesananJualPage({
 
         {/* Tombol Aksi di Header Sesuai Wireframe Page 3 */}
         <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Status DIKONFIRMASI Sesuai Wireframe: Batalkan (Manajer) & Tandai dikirim */}
+          {/* Status DIKONFIRMASI Sesuai Wireframe: Batalkan (Manajer), Surat Jalan & Tandai dikirim */}
           {pesanan.status === 'dikonfirmasi' && (
             <>
+              <button
+                type="button"
+                onClick={handleOpenPrintMode}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-750 transition shadow-sm cursor-pointer"
+                title="Cetak Surat Jalan Pengiriman"
+              >
+                <Printer className="w-3.5 h-3.5 text-zinc-500" />
+                Surat Jalan
+              </button>
+
               <button
                 type="button"
                 onClick={() => {
@@ -566,8 +693,8 @@ export default function DetailPesananJualPage({
             <>
               <button
                 type="button"
-                onClick={() => setPrintMode(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-750 transition shadow-sm"
+                onClick={handleOpenPrintMode}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-750 transition shadow-sm cursor-pointer"
               >
                 <Printer className="w-3.5 h-3.5 text-zinc-500" />
                 Surat Jalan
@@ -590,8 +717,8 @@ export default function DetailPesananJualPage({
           {pesanan.status === 'lunas' && (
             <button
               type="button"
-              onClick={() => setPrintMode(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-750 transition shadow-sm"
+              onClick={handleOpenPrintMode}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-750 transition shadow-sm cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5 text-zinc-500" />
               Surat Jalan
@@ -838,7 +965,7 @@ export default function DetailPesananJualPage({
                 {pesanan.pelanggan?.nama_toko || '-'}
               </h2>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 leading-relaxed">
-                {pesanan.pelanggan?.kode} · {pesanan.pelanggan?.alamat || 'Alamat tidak tersedia'}
+                {pesanan.pelanggan?.kode ? `${pesanan.pelanggan.kode} · ` : ''}{alamatPengiriman || pesanan.pelanggan?.alamat || 'Alamat tidak tersedia'}
               </p>
             </div>
 

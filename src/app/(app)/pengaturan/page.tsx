@@ -18,7 +18,15 @@ import {
   RefreshCw,
   Search,
   Filter,
-  ShieldAlert
+  ShieldAlert,
+  Mail,
+  Send,
+  Eye,
+  Check,
+  Clock,
+  Package,
+  ExternalLink,
+  Sparkles
 } from 'lucide-react';
 
 interface ProfileItem {
@@ -45,7 +53,7 @@ interface AuditLogRow {
 
 export default function PengaturanPage() {
   const { profile } = useAuth();
-  const [activeTab, setActiveTab] = useState<'users' | 'audit'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'audit' | 'email'>('users');
   const [profilesList, setProfilesList] = useState<ProfileItem[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,6 +66,28 @@ export default function PengaturanPage() {
   const [formPeran, setFormPeran] = useState<PeranUser>('penjualan');
   const [formAktif, setFormAktif] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+
+  // State Notifikasi Email (Fitur Nilai Tambah PRD Bab 11)
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailStatusData, setEmailStatusData] = useState<{
+    lowStockCount: number;
+    mode: string;
+    sampleItems: any[];
+    targetRoles: string[];
+  } | null>(null);
+  const [emailResult, setEmailResult] = useState<{
+    success: boolean;
+    mode: string;
+    recipients: string[];
+    itemCount: number;
+    timestamp: string;
+    subject: string;
+    message: string;
+    messageId?: string;
+    htmlPreview?: string;
+  } | null>(null);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState<string>('');
 
   const supabase = createClient();
   const isManager = profile?.peran === 'manajer';
@@ -95,6 +125,17 @@ export default function PengaturanPage() {
 
       if (logError) throw logError;
       setAuditLogs((logData as unknown as AuditLogRow[]) || []);
+
+      // 3. Ambil status notifikasi email
+      try {
+        const resEmail = await fetch('/api/notifications/email-stok');
+        if (resEmail.ok) {
+          const jsonEmail = await resEmail.json();
+          setEmailStatusData(jsonEmail);
+        }
+      } catch (err) {
+        console.warn('Gagal memuat status notifikasi email:', err);
+      }
     } catch (err: unknown) {
       console.error('Error fetching pengaturan data:', err);
       setActionMsg({
@@ -103,6 +144,67 @@ export default function PengaturanPage() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Handler Kirim Notifikasi Email Stok Menipis
+  const handleSendStockEmail = async () => {
+    try {
+      setSendingEmail(true);
+      setActionMsg(null);
+      const res = await fetch('/api/notifications/email-stok', {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Gagal mengirim email notifikasi');
+
+      setEmailResult(data);
+      if (data.htmlPreview) {
+        setPreviewHtml(data.htmlPreview);
+      }
+      setActionMsg({
+        type: 'success',
+        text: data.message || `Notifikasi email berhasil diproses untuk ${data.itemCount} barang.`,
+      });
+
+      // Muat ulang ringkasan status email
+      const resStatus = await fetch('/api/notifications/email-stok');
+      if (resStatus.ok) setEmailStatusData(await resStatus.json());
+    } catch (err: unknown) {
+      setActionMsg({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Gagal mengirim notifikasi email',
+      });
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
+  // Handler Pratinjau Desain Template Email (HTML)
+  const handleOpenEmailPreview = async () => {
+    if (previewHtml) {
+      setShowPreviewModal(true);
+      return;
+    }
+
+    try {
+      setSendingEmail(true);
+      const res = await fetch('/api/notifications/email-stok?force=true', { method: 'POST' });
+      const data = await res.json();
+      if (data.htmlPreview) {
+        setPreviewHtml(data.htmlPreview);
+        setEmailResult(data);
+        setShowPreviewModal(true);
+      } else {
+        throw new Error('Tidak ada data pratinjau');
+      }
+    } catch (err) {
+      setActionMsg({
+        type: 'error',
+        text: 'Gagal memuat pratinjau template email.',
+      });
+    } finally {
+      setSendingEmail(false);
     }
   };
 
@@ -261,7 +363,7 @@ export default function PengaturanPage() {
         </div>
       )}
 
-      {/* Tab Navigasi: Akun Pengguna vs Audit Log */}
+      {/* Tab Navigasi: Akun Pengguna vs Audit Log vs Notifikasi Email */}
       <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
         <button
           onClick={() => setActiveTab('users')}
@@ -286,6 +388,23 @@ export default function PengaturanPage() {
           <FileText className="w-4 h-4" />
           <span>Jejak Audit Log ({auditLogs.length})</span>
         </button>
+
+        <button
+          onClick={() => setActiveTab('email')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
+            activeTab === 'email'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Mail className="w-4 h-4" />
+          <span>Notifikasi Email (Stok)</span>
+          {emailStatusData && emailStatusData.lowStockCount > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500 text-white leading-none">
+              {emailStatusData.lowStockCount}
+            </span>
+          )}
+        </button>
       </div>
 
       {activeTab === 'users' ? (
@@ -298,7 +417,7 @@ export default function PengaturanPage() {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scrollbar-none">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold">
@@ -368,12 +487,12 @@ export default function PengaturanPage() {
             </table>
           </div>
         </div>
-      ) : (
+      ) : activeTab === 'audit' ? (
         /* TAB 2: Jejak Audit Log (Audit Trail) */
         <div className="space-y-4">
           {/* Filter Bar Audit Log */}
           <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-1 md:pb-0">
               {(
                 [
                   { id: 'semua', label: 'Semua Aksi' },
@@ -414,16 +533,16 @@ export default function PengaturanPage() {
 
           {/* Tabel Audit Log */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto scrollbar-none">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold">
-                    <th className="py-3 px-4">Waktu (WIB)</th>
-                    <th className="py-3 px-4">Pelaku</th>
-                    <th className="py-3 px-4">Aksi Sensitif</th>
-                    <th className="py-3 px-4">Tabel / Target</th>
-                    <th className="py-3 px-4">Nilai Sebelum</th>
-                    <th className="py-3 px-4">Nilai Sesudah</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Waktu (WIB)</th>
+                    <th className="py-3 px-3">Pelaku</th>
+                    <th className="py-3 px-3">Aksi Sensitif</th>
+                    <th className="py-3 px-3">Tabel / Target</th>
+                    <th className="py-3 px-3">Nilai Sebelum</th>
+                    <th className="py-3 px-3">Nilai Sesudah</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -448,26 +567,26 @@ export default function PengaturanPage() {
 
                       return (
                         <tr key={log.id} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="py-3 px-4 font-mono text-slate-500 whitespace-nowrap">
+                          <td className="py-3 px-3 font-mono text-slate-500 whitespace-nowrap text-[11px]">
                             {formatTanggalWaktu(log.dibuat_pada)}
                           </td>
-                          <td className="py-3 px-4 font-semibold text-slate-800">
+                          <td className="py-3 px-3 font-semibold text-slate-800 whitespace-nowrap">
                             {log.pelaku?.nama_lengkap || 'Sistem'}
                           </td>
-                          <td className="py-3 px-4">
-                            <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${badge.cls}`}>
+                          <td className="py-3 px-3 whitespace-nowrap">
+                            <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${badge.cls}`}>
                               {badge.label}
                             </span>
                           </td>
-                          <td className="py-3 px-4 font-mono text-slate-600">
+                          <td className="py-3 px-3 font-mono text-slate-600 whitespace-nowrap">
                             <span className="px-1.5 py-0.5 rounded bg-slate-100 text-[11px] font-medium">
                               {log.nama_tabel}
                             </span>
                           </td>
-                          <td className="py-3 px-4 font-mono text-slate-500 text-[11px] max-w-xs truncate" title={JSON.stringify(log.nilai_lama)}>
+                          <td className="py-3 px-3 font-mono text-slate-500 text-[11px] max-w-[150px] truncate" title={JSON.stringify(log.nilai_lama)}>
                             {log.nilai_lama ? JSON.stringify(log.nilai_lama) : '-'}
                           </td>
-                          <td className="py-3 px-4 font-mono font-medium text-slate-900 text-[11px] max-w-xs truncate" title={JSON.stringify(log.nilai_baru)}>
+                          <td className="py-3 px-3 font-mono font-medium text-slate-900 text-[11px] max-w-[150px] truncate" title={JSON.stringify(log.nilai_baru)}>
                             {JSON.stringify(log.nilai_baru)}
                           </td>
                         </tr>
@@ -480,6 +599,223 @@ export default function PengaturanPage() {
 
             <div className="p-3 bg-slate-50 border-t border-slate-100 text-center text-[11px] text-slate-500">
               Menampilkan {filteredAuditLogs.length} catatan audit log terakhir (Append-Only, tidak dapat diubah/dihapus).
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* TAB 3: Layanan Notifikasi Email Stok Menipis (Fitur Nilai Tambah PRD Bab 11) */
+        <div className="space-y-6">
+          {/* 4 Kartu Metrik Notifikasi Email */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Kartu 1: Status Layanan */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between min-h-[130px]">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Status Layanan
+                </span>
+                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                  <Mail className="w-5 h-5" />
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <p className="text-lg font-bold text-slate-900">
+                    {emailStatusData?.mode === 'resend' ? 'Resend API Aktif' : 'Mode Simulasi (Ready)'}
+                  </p>
+                </div>
+                <p className="text-xs text-slate-500 mt-1 font-medium">
+                  {emailStatusData?.mode === 'resend' ? 'Terkoneksi langsung ke inbox' : 'Sandbox aktif untuk pengujian'}
+                </p>
+              </div>
+            </div>
+
+            {/* Kartu 2: Jadwal Pengiriman */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between min-h-[130px]">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Jadwal Otomatis
+                </span>
+                <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                  <Clock className="w-5 h-5" />
+                </div>
+              </div>
+              <div>
+                <p className="text-lg font-bold text-slate-900">Pukul 07:00 WIB</p>
+                <p className="text-xs text-slate-500 mt-1 font-medium">
+                  Setiap pagi via endpoint /api/notifications
+                </p>
+              </div>
+            </div>
+
+            {/* Kartu 3: Target Penerima */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between min-h-[130px]">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Target Penerima
+                </span>
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                  <Users className="w-5 h-5" />
+                </div>
+              </div>
+              <div>
+                <p className="text-lg font-bold text-slate-900">Manajer & Gudang</p>
+                <p className="text-xs text-slate-500 mt-1 font-medium truncate">
+                  hendra@, agus@, joko@sinarabadi.test
+                </p>
+              </div>
+            </div>
+
+            {/* Kartu 4: Barang Menipis Terdeteksi */}
+            <div className="bg-white p-5 rounded-2xl border border-rose-200 bg-rose-50/20 shadow-sm flex flex-col justify-between min-h-[130px]">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-rose-700">
+                  Stok Perlu Pengadaan
+                </span>
+                <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+                  <Package className="w-5 h-5" />
+                </div>
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-rose-700">
+                  {emailStatusData?.lowStockCount ?? 0} Barang
+                </p>
+                <p className="text-xs text-rose-600 mt-1 font-medium">
+                  Kuantitas ≤ batas stok minimum
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Panel Kontrol & Aksi Notifikasi Email */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-blue-600" />
+                  Kontrol Pengiriman Notifikasi Email
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Sesuai <strong>PRD_ERP.md Bab 11.1</strong>: Kirim rekap email stok menipis secara instan dan periksa pratinjau template HTML.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2.5">
+                <button
+                  onClick={handleOpenEmailPreview}
+                  disabled={sendingEmail}
+                  className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs flex items-center gap-2 shadow-sm transition disabled:opacity-50"
+                >
+                  <Eye className="w-4 h-4 text-slate-500" />
+                  <span>Pratinjau Template</span>
+                </button>
+
+                <button
+                  onClick={handleSendStockEmail}
+                  disabled={sendingEmail}
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs flex items-center gap-2 shadow-sm transition disabled:opacity-50"
+                >
+                  {sendingEmail ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Memproses Pengiriman...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" />
+                      <span>Kirim Notifikasi Email Sekarang</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Hasil Eksekusi Pengiriman Terakhir */}
+            {emailResult && (
+              <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 font-bold text-xs">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>Hasil Eksekusi: {emailResult.message}</span>
+                  </div>
+                  <span className="text-[11px] font-mono text-emerald-700">
+                    ID: {emailResult.messageId || 'simulasi'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs pt-1 border-t border-emerald-200/60">
+                  <div>
+                    <span className="text-emerald-700 font-medium">Subjek:</span>{' '}
+                    <span className="font-semibold">{emailResult.subject}</span>
+                  </div>
+                  <div>
+                    <span className="text-emerald-700 font-medium">Penerima ({emailResult.recipients?.length}):</span>{' '}
+                    <span className="font-mono text-[11px]">{emailResult.recipients?.join(', ')}</span>
+                  </div>
+                  <div>
+                    <span className="text-emerald-700 font-medium">Jumlah Barang:</span>{' '}
+                    <span className="font-bold">{emailResult.itemCount} Item</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Catatan Kepatuhan Regulasi & Keamanan Data (BR-12) */}
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs text-slate-600">
+              <p className="font-bold text-slate-800 flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                Kepatuhan Aturan Bisnis & Rahasia Dagang (BR-12)
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-slate-500 pl-1">
+                <li>Template email tidak mencantumkan angka harga pokok (HPP) maupun margin barang, sehingga aman untuk Staf Gudang.</li>
+                <li>Endpoint API otomatis diproteksi dan hanya mengirimkan email ke akun aktif berstatus Manajer dan Staf Gudang.</li>
+                <li>Mendukung penyedia email API seperti Resend (`RESEND_API_KEY`) dan otomatis fallback ke mode simulasi sandbox bila kunci API belum diisi.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Pratinjau Desain Template Email (HTML) */}
+      {showPreviewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-blue-600" />
+                  Pratinjau Notifikasi Email Stok Menipis
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Desain responsif HTML yang diterima oleh Manajer dan Staf Gudang
+                </p>
+              </div>
+              <button onClick={() => setShowPreviewModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-1.5 p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs shrink-0">
+              <p><strong className="text-slate-700">Pengirim:</strong> CV Sinar Abadi Niaga &lt;notifikasi@sinarabadi.test&gt;</p>
+              <p><strong className="text-slate-700">Kepada:</strong> hendra@sinarabadi.test, agus@sinarabadi.test, joko@sinarabadi.test</p>
+              <p><strong className="text-slate-700">Subjek:</strong> [PERINGATAN STOK] Rekap Barang Menipis & Kritis - CV Sinar Abadi Niaga</p>
+            </div>
+
+            <div className="flex-1 overflow-y-auto rounded-xl border border-slate-200 p-2 bg-slate-100">
+              <iframe
+                title="Email Preview"
+                srcDoc={previewHtml}
+                className="w-full h-[460px] bg-white rounded-lg border-0 shadow-sm"
+              />
+            </div>
+
+            <div className="pt-2 flex items-center justify-end gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowPreviewModal(false)}
+                className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs shadow-sm"
+              >
+                Tutup Pratinjau
+              </button>
             </div>
           </div>
         </div>

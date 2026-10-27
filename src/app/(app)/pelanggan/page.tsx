@@ -406,17 +406,17 @@ export default function PelangganPage() {
 
       {/* Tabel Data Pelanggan */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto scrollbar-none">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold">
                 <th className="py-3 px-4">Kode</th>
-                <th className="py-3 px-4">Nama Toko & Kontak</th>
-                <th className="py-3 px-4 text-center">Termin</th>
-                <th className="py-3 px-4 text-right">Batas Kredit</th>
-                <th className="py-3 px-4 text-right">Piutang Berjalan</th>
-                <th className="py-3 px-4 text-right">Sisa Limit</th>
-                <th className="py-3 px-4 text-center">Status Tagihan</th>
+                <th className="py-3 px-3">Nama Toko & Kontak</th>
+                <th className="py-3 px-2 text-center">Termin</th>
+                <th className="py-3 px-3 text-right">Batas Kredit</th>
+                <th className="py-3 px-3 text-right">Piutang Berjalan</th>
+                <th className="py-3 px-3 text-right">Sisa Limit</th>
+                <th className="py-3 px-2 text-center">Status</th>
                 <th className="py-3 px-4 text-center">Aksi</th>
               </tr>
             </thead>
@@ -444,43 +444,43 @@ export default function PelangganPage() {
 
                   return (
                     <tr key={p.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-3 px-4 font-mono font-semibold text-slate-800">
+                      <td className="py-3 px-4 font-mono font-semibold text-slate-800 whitespace-nowrap">
                         {p.kode}
                       </td>
-                      <td className="py-3 px-4">
-                        <p className="font-semibold text-slate-900">{p.nama_toko}</p>
-                        <div className="flex items-center gap-3 text-[11px] text-slate-500 mt-0.5">
+                      <td className="py-3 px-3">
+                        <p className="font-semibold text-slate-900 leading-snug">{p.nama_toko}</p>
+                        <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5">
                           {p.telepon && (
-                            <span className="flex items-center gap-1">
+                            <span className="flex items-center gap-1 whitespace-nowrap">
                               <Phone className="w-3 h-3 text-slate-400" />
                               {p.telepon}
                             </span>
                           )}
                           {p.alamat && (
-                            <span className="flex items-center gap-1 truncate max-w-xs" title={p.alamat}>
-                              <MapPin className="w-3 h-3 text-slate-400" />
+                            <span className="flex items-center gap-1 truncate max-w-[180px]" title={p.alamat}>
+                              <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
                               {p.alamat}
                             </span>
                           )}
                         </div>
                       </td>
-                      <td className="py-3 px-4 text-center">
-                        <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-mono text-[11px] font-medium">
-                          {p.termin_hari === 0 ? 'Tunai (0 hari)' : `${p.termin_hari} hari`}
+                      <td className="py-3 px-2 text-center whitespace-nowrap">
+                        <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-mono text-[10px] font-medium">
+                          {p.termin_hari === 0 ? 'Tunai' : `${p.termin_hari} hr`}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-right font-medium text-slate-900">
+                      <td className="py-3 px-3 text-right font-medium text-slate-900 whitespace-nowrap">
                         {formatRupiah(p.batas_kredit)}
                       </td>
-                      <td className="py-3 px-4 text-right font-semibold text-slate-800">
+                      <td className="py-3 px-3 text-right font-semibold text-slate-800 whitespace-nowrap">
                         {formatRupiah(piutang)}
                       </td>
-                      <td className="py-3 px-4 text-right font-mono font-medium">
+                      <td className="py-3 px-3 text-right font-mono font-medium whitespace-nowrap">
                         <span className={isLimitHabis ? 'text-rose-600 font-bold' : sisaLimit < 2000000 ? 'text-amber-600' : 'text-emerald-700'}>
                           {formatRupiah(sisaLimit)}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-center">
+                      <td className="py-3 px-2 text-center whitespace-nowrap">
                         {p.has_overdue ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
                             <Clock className="w-3 h-3 text-rose-600" />
@@ -493,7 +493,7 @@ export default function PelangganPage() {
                           </span>
                         )}
                       </td>
-                      <td className="py-3 px-4 text-center">
+                      <td className="py-3 px-4 text-center whitespace-nowrap">
                         <button
                           onClick={() => openEditModal(p)}
                           className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50 transition-colors"

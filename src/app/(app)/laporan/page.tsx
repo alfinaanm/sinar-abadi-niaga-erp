@@ -45,6 +45,7 @@ interface PiutangPelangganRow {
 export default function LaporanPage() {
   const { profile } = useAuth();
   const [loading, setLoading] = useState(true);
+  const [periodeFilter, setPeriodeFilter] = useState<'semua' | 'oktober' | 'september' | '30hari'>('semua');
   const [weeklyStats, setWeeklyStats] = useState<WeeklyStat[]>([
     { minggu: '2026-08-31', label: '31/8', omzet: 20300000, margin: 1400000 },
     { minggu: '2026-09-07', label: '7/9', omzet: 25700000, margin: 1800000 },
@@ -60,6 +61,19 @@ export default function LaporanPage() {
   const supabase = createClient();
   const isManager = profile?.peran === 'manajer';
 
+  const periodeLabel = useMemo(() => {
+    switch (periodeFilter) {
+      case 'oktober':
+        return '1 Oktober 2026 sampai 31 Oktober 2026';
+      case 'september':
+        return '1 September 2026 sampai 30 September 2026';
+      case '30hari':
+        return '30 Hari Terakhir';
+      default:
+        return '1 September 2026 sampai 14 Oktober 2026';
+    }
+  }, [periodeFilter]);
+
   const loadLaporanData = async () => {
     try {
       setLoading(true);
@@ -73,6 +87,7 @@ export default function LaporanPage() {
           pelanggan_id,
           status,
           total,
+          dibuat_pada,
           dikirim_pada,
           jatuh_tempo,
           pelanggan:pelanggan_id ( nama_toko )
@@ -90,16 +105,35 @@ export default function LaporanPage() {
           subtotal,
           hpp_satuan,
           pesanan_jual_id,
-          pesanan:pesanan_jual_id ( status, dikirim_pada ),
-          barang:barang_id ( kode, nama )
+          pesanan:pesanan_jual_id ( status, dikirim_pada, dibuat_pada ),
+          barang:barang_id ( kode, nama, harga_pokok )
         `);
 
       if (iError) throw iError;
 
+      // Filter pesanan dan item sesuai periodeFilter yang dipilih
+      const filterByDate = (dateStr: string | null | undefined) => {
+        if (!dateStr) return false;
+        const d = new Date(dateStr);
+        if (periodeFilter === 'oktober') {
+          return d.getFullYear() === 2026 && d.getMonth() === 9; // Oktober
+        }
+        if (periodeFilter === 'september') {
+          return d.getFullYear() === 2026 && d.getMonth() === 8; // September
+        }
+        if (periodeFilter === '30hari') {
+          const thirtyDaysAgo = new Date('2026-09-14T00:00:00');
+          return d >= thirtyDaysAgo;
+        }
+        return true;
+      };
+
       // Filter item hanya untuk pesanan berstatus dikirim dan lunas (PRD Bab 9: pesanan batal & draf tidak dihitung)
-      const validItems = (itemsData || []).filter((item: any) =>
-        ['dikirim', 'lunas'].includes(item.pesanan?.status)
-      );
+      const validItems = (itemsData || []).filter((item: any) => {
+        const isValidStatus = ['dikirim', 'lunas'].includes(item.pesanan?.status);
+        const matchPeriode = filterByDate(item.pesanan?.dikirim_pada || item.pesanan?.dibuat_pada);
+        return isValidStatus && matchPeriode;
+      });
 
       // Hitung akumulasi per barang
       const itemMap: Record<string, ItemMarginRow> = {};
@@ -107,7 +141,7 @@ export default function LaporanPage() {
         const bid = item.barang_id;
         const subtotal = Number(item.subtotal) || 0;
         const qty = Number(item.jumlah) || 0;
-        const hpp = Number(item.hpp_satuan) || 0;
+        const hpp = Number(item.hpp_satuan || item.barang?.harga_pokok) || 0;
         const totalHpp = hpp * qty;
         const margin = subtotal - totalHpp;
 
@@ -182,6 +216,54 @@ export default function LaporanPage() {
       });
 
       setPiutangRows(Object.values(piutangMap));
+
+      // 4. Hitung bucket mingguan dari data nyata jika tersedia
+      if (pesananList && pesananList.length > 0) {
+        const weeksDef = [
+          { start: new Date('2026-08-31'), end: new Date('2026-09-07'), label: '31/8', minggu: '2026-08-31' },
+          { start: new Date('2026-09-07'), end: new Date('2026-09-14'), label: '7/9', minggu: '2026-09-07' },
+          { start: new Date('2026-09-14'), end: new Date('2026-09-21'), label: '14/9', minggu: '2026-09-14' },
+          { start: new Date('2026-09-21'), end: new Date('2026-09-28'), label: '21/9', minggu: '2026-09-21' },
+          { start: new Date('2026-09-28'), end: new Date('2026-10-05'), label: '28/9', minggu: '2026-09-28' },
+          { start: new Date('2026-10-05'), end: new Date('2026-10-12'), label: '5/10', minggu: '2026-10-05' },
+          { start: new Date('2026-10-12'), end: new Date('2026-10-19'), label: '12/10', minggu: '2026-10-12' },
+        ];
+
+        const computedWeeks: WeeklyStat[] = weeksDef.map((w) => {
+          const ordersInWeek = pesananList.filter((p: any) => {
+            const d = new Date(p.dikirim_pada || p.dibuat_pada || '');
+            return d >= w.start && d < w.end && ['dikirim', 'lunas'].includes(p.status);
+          });
+
+          const omzet = ordersInWeek.reduce((sum: number, o: any) => sum + Number(o.total || 0), 0);
+          const orderIds = new Set(ordersInWeek.map((o: any) => o.id));
+
+          let margin = 0;
+          if (itemsData && itemsData.length > 0) {
+            for (const it of (itemsData as any[])) {
+              if (orderIds.has(it.pesanan_jual_id)) {
+                const sub = Number(it.subtotal || 0);
+                const b = Array.isArray(it.barang) ? it.barang[0] : it.barang;
+                const hpp = Number(it.hpp_satuan || b?.harga_pokok || 0);
+                const qty = Number(it.jumlah || 0);
+                margin += (sub - (hpp * qty));
+              }
+            }
+          }
+
+          return {
+            minggu: w.minggu,
+            label: w.label,
+            omzet,
+            margin,
+          };
+        });
+
+        const hasRealWeekly = computedWeeks.some((w) => w.omzet > 0);
+        if (hasRealWeekly) {
+          setWeeklyStats(computedWeeks);
+        }
+      }
     } catch (err: unknown) {
       console.error('Error loading laporan data:', err);
     } finally {
@@ -193,7 +275,7 @@ export default function LaporanPage() {
     if (isManager) {
       loadLaporanData();
     }
-  }, [isManager]);
+  }, [isManager, periodeFilter]);
 
   // Total Omzet & Total Margin
   const totalOmzetMingguan = useMemo(() => {
@@ -254,7 +336,7 @@ export default function LaporanPage() {
   const maxOmzet = Math.max(...weeklyStats.map((w) => w.omzet), 36000000);
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8">
+    <div className="p-8 max-w-7xl mx-auto space-y-6">
       {/* Header Laporan Sesuai Wireframe Page 4 */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
         <div>
@@ -265,15 +347,32 @@ export default function LaporanPage() {
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
-            Periode 1 September 2026 sampai 14 Oktober 2026 · berdasarkan tanggal kirim
+            Periode {periodeLabel} · berdasarkan tanggal kirim
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Dropdown Periode di Samping Ekspor CSV */}
+          <div className="relative">
+            <select
+              value={periodeFilter}
+              onChange={(e) => setPeriodeFilter(e.target.value as any)}
+              className="appearance-none bg-white border border-slate-200 rounded-xl pl-3 pr-8 py-2 text-xs font-semibold text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm cursor-pointer"
+            >
+              <option value="semua">Semua Periode (Sep - Okt 2026)</option>
+              <option value="oktober">Bulan Ini (Oktober 2026)</option>
+              <option value="september">Bulan Lalu (September 2026)</option>
+              <option value="30hari">30 Hari Terakhir</option>
+            </select>
+            <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-500">
+              ▾
+            </span>
+          </div>
+
           <button
             onClick={loadLaporanData}
             disabled={loading}
-            className="p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition-colors shadow-sm"
+            className="p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition-colors shadow-sm"
             title="Muat ulang laporan"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -281,31 +380,31 @@ export default function LaporanPage() {
 
           <button
             onClick={handleExportCSV}
-            className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-semibold shadow-sm transition-colors"
+            className="flex items-center gap-2 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold shadow-sm transition-colors whitespace-nowrap"
           >
-            <Download className="w-4 h-4" />
+            <Download className="w-3.5 h-3.5" />
             <span>Ekspor CSV</span>
           </button>
         </div>
       </div>
 
-      {/* Grid Utama 2 Kolom Sesuai Wireframe Page 4 */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* KOLOM KIRI (7 Kolom): Grafik Omzet & Margin Mingguan + Tabel Piutang Pelanggan */}
-        <div className="lg:col-span-7 space-y-8">
+      {/* Grid Utama 2 Kolom Seimbang Sesuai Wireframe Page 4 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* KOLOM KIRI: Grafik Omzet & Margin Mingguan + Tabel Piutang Pelanggan */}
+        <div className="space-y-6">
           {/* Card 1: Omzet dan Margin per Minggu */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
             <div>
               <h2 className="text-base font-bold text-slate-900">
                 Omzet dan margin per minggu
               </h2>
-              <div className="flex flex-wrap items-center gap-4 mt-2 text-xs">
+              <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs">
                 <div className="flex items-center gap-1.5 font-semibold text-slate-700">
-                  <span className="w-3 h-3 rounded bg-slate-400" />
+                  <span className="w-2.5 h-2.5 rounded bg-slate-400" />
                   <span>Omzet</span>
                 </div>
                 <div className="flex items-center gap-1.5 font-semibold text-blue-700">
-                  <span className="w-3 h-3 rounded bg-blue-600" />
+                  <span className="w-2.5 h-2.5 rounded bg-blue-600" />
                   <span>Margin</span>
                 </div>
                 <span className="text-slate-400 font-medium">·</span>
@@ -316,30 +415,31 @@ export default function LaporanPage() {
               </div>
             </div>
 
-            {/* Visualisasi Grafik Batang Sesuai Wireframe */}
-            <div className="h-64 flex items-end justify-between gap-2 pt-6 pb-2 px-2 border-b border-slate-100">
+            {/* Visualisasi Grafik Batang Berdiri Kokoh dengan Tinggi Eksplisit */}
+            <div className="h-56 flex items-end justify-between gap-1 sm:gap-2 pt-4 pb-2 px-2 border-b border-slate-100">
               {weeklyStats.map((w, idx) => {
-                const omzetHeightPercent = Math.max(8, Math.round((w.omzet / maxOmzet) * 100));
-                const marginHeightPercent = Math.max(4, Math.round((w.margin / maxOmzet) * 100));
+                const omzetHeightPercent = Math.max(6, Math.min(100, Math.round((w.omzet / maxOmzet) * 100)));
+                const marginHeightPercent = Math.max(4, Math.min(100, Math.round((w.margin / maxOmzet) * 100)));
                 const omzetJt = (w.omzet / 1000000).toFixed(1);
 
                 return (
-                  <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end group">
-                    <span className="text-[10px] font-mono text-slate-500 font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div key={idx} className="flex-1 flex flex-col items-center h-full justify-end group">
+                    <span className="text-[10px] font-mono text-slate-500 font-medium mb-1 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
                       {omzetJt} jt
                     </span>
 
-                    <div className="w-full flex items-end justify-center gap-1">
+                    {/* Kontainer batang dengan tinggi terukur 160px (h-40) agar height % pasti muncul */}
+                    <div className="w-full h-40 flex items-end justify-center gap-1 sm:gap-1.5 pb-1">
                       {/* Batang Omzet */}
                       <div
                         style={{ height: `${omzetHeightPercent}%` }}
-                        className="w-4 sm:w-5 bg-slate-400 rounded-t-sm group-hover:bg-slate-500 transition-all shadow-sm"
+                        className="w-3.5 sm:w-5 bg-slate-400 rounded-t group-hover:bg-slate-500 transition-all shadow-sm min-h-[6px]"
                         title={`Omzet: ${formatRupiah(w.omzet)}`}
                       />
                       {/* Batang Margin */}
                       <div
                         style={{ height: `${marginHeightPercent}%` }}
-                        className="w-4 sm:w-5 bg-blue-600 rounded-t-sm group-hover:bg-blue-700 transition-all shadow-sm"
+                        className="w-3.5 sm:w-5 bg-blue-600 rounded-t group-hover:bg-blue-700 transition-all shadow-sm min-h-[6px]"
                         title={`Margin: ${formatRupiah(w.margin)}`}
                       />
                     </div>
@@ -358,7 +458,7 @@ export default function LaporanPage() {
           </div>
 
           {/* Card 2: Piutang per Pelanggan */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
             <div>
               <h2 className="text-base font-bold text-slate-900">Piutang per pelanggan</h2>
               <p className="text-xs text-slate-500 mt-0.5">
@@ -366,14 +466,14 @@ export default function LaporanPage() {
               </p>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
+            <div className="overflow-hidden">
+              <table className="w-full table-fixed text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase text-[10px]">
-                    <th className="py-2.5 px-3">Pelanggan</th>
-                    <th className="py-2.5 px-3 text-right">Belum Jatuh Tempo</th>
-                    <th className="py-2.5 px-3 text-right text-amber-700">Lewat 1 s.d 30 Hari</th>
-                    <th className="py-2.5 px-3 text-right text-rose-700">Lewat &gt; 30 Hari</th>
+                    <th className="py-2.5 px-3 w-[34%]">Pelanggan</th>
+                    <th className="py-2.5 px-2.5 text-right w-[22%]">Belum Tempo</th>
+                    <th className="py-2.5 px-2.5 text-right text-amber-700 w-[22%]">Lewat 1-30 Hr</th>
+                    <th className="py-2.5 px-2.5 text-right text-rose-700 w-[22%]">Lewat &gt;30 Hr</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -386,16 +486,16 @@ export default function LaporanPage() {
                   ) : (
                     piutangRows.map((p) => (
                       <tr key={p.pelanggan_id} className="hover:bg-slate-50/50">
-                        <td className="py-2.5 px-3 font-semibold text-slate-900">
+                        <td className="py-2.5 px-3 font-semibold text-slate-900 truncate" title={p.nama_toko}>
                           {p.nama_toko}
                         </td>
-                        <td className="py-2.5 px-3 text-right font-mono font-medium text-slate-800">
+                        <td className="py-2.5 px-2.5 text-right font-mono font-medium text-slate-800 truncate">
                           {p.belum_tempo > 0 ? formatRupiah(p.belum_tempo) : '-'}
                         </td>
-                        <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-700">
+                        <td className="py-2.5 px-2.5 text-right font-mono font-bold text-amber-700 truncate">
                           {p.lewat_1_30 > 0 ? formatRupiah(p.lewat_1_30) : '-'}
                         </td>
-                        <td className="py-2.5 px-3 text-right font-mono font-bold text-rose-700">
+                        <td className="py-2.5 px-2.5 text-right font-mono font-bold text-rose-700 truncate">
                           {p.lewat_gt_30 > 0 ? formatRupiah(p.lewat_gt_30) : '-'}
                         </td>
                       </tr>
@@ -407,9 +507,9 @@ export default function LaporanPage() {
           </div>
         </div>
 
-        {/* KOLOM KANAN (5 Kolom): Tabel Margin per Barang Sesuai Wireframe Page 4 */}
-        <div className="lg:col-span-5">
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+        {/* KOLOM KANAN: Tabel Margin per Barang Sesuai Wireframe Page 4 */}
+        <div>
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
             <div>
               <h2 className="text-base font-bold text-slate-900">Margin per barang</h2>
               <p className="text-xs text-slate-500 mt-0.5">
@@ -417,15 +517,15 @@ export default function LaporanPage() {
               </p>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
+            <div className="overflow-hidden">
+              <table className="w-full table-fixed text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase text-[10px]">
-                    <th className="py-2.5 px-2">Barang</th>
-                    <th className="py-2.5 px-2 text-center">Terjual</th>
-                    <th className="py-2.5 px-2 text-right">Omzet</th>
-                    <th className="py-2.5 px-2 text-right text-blue-800">Margin</th>
-                    <th className="py-2.5 px-2 text-right">%</th>
+                    <th className="py-2.5 px-3 w-[32%]">Barang</th>
+                    <th className="py-2.5 px-2 text-center w-[14%]">Terjual</th>
+                    <th className="py-2.5 px-2.5 text-right w-[24%]">Omzet</th>
+                    <th className="py-2.5 px-2.5 text-right text-blue-800 w-[22%]">Margin</th>
+                    <th className="py-2.5 px-2 text-right w-[8%]">%</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -438,19 +538,19 @@ export default function LaporanPage() {
                   ) : (
                     itemMargins.map((item) => (
                       <tr key={item.barang_id} className="hover:bg-slate-50/50">
-                        <td className="py-2 px-2 font-medium text-slate-900 max-w-[140px] truncate" title={item.nama}>
+                        <td className="py-2 px-3 font-medium text-slate-900 truncate" title={item.nama}>
                           {item.nama}
                         </td>
-                        <td className="py-2 px-2 text-center font-mono text-slate-600">
+                        <td className="py-2 px-2 text-center font-mono text-slate-600 truncate">
                           {item.terjual}
                         </td>
-                        <td className="py-2 px-2 text-right font-mono font-medium text-slate-900">
+                        <td className="py-2 px-2.5 text-right font-mono font-medium text-slate-900 truncate">
                           {formatRupiah(item.omzet)}
                         </td>
-                        <td className="py-2 px-2 text-right font-mono font-bold text-blue-900">
+                        <td className="py-2 px-2.5 text-right font-mono font-bold text-blue-900 truncate">
                           {formatRupiah(item.margin)}
                         </td>
-                        <td className="py-2 px-2 text-right font-mono text-slate-600">
+                        <td className="py-2 px-2 text-right font-mono text-slate-600 truncate">
                           {item.persen}%
                         </td>
                       </tr>

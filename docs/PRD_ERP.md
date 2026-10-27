@@ -75,6 +75,7 @@ Aplikasi ini internal. Tidak ada halaman publik dan tidak ada pendaftaran mandir
 | US-08 | Sebagai Staf Gudang, saya ingin mencatat hasil hitung fisik dan melihat kartu stok setiap barang. | BR-11, BR-12 |
 | US-09 | Sebagai Manajer, saya ingin membatalkan pesanan yang sudah dikonfirmasi dan mencatat pelunasan dari pelanggan. | BR-07, BR-08, BR-12 |
 | US-10 | Sebagai Manajer, saya ingin melihat omzet, margin per minggu dan per barang, stok menipis, serta piutang per pelanggan. | BR-05, BR-12 |
+| US-11 | Sebagai Manajer dan Staf Gudang, saya ingin menerima notifikasi email stok menipis & habis secara otomatis maupun manual agar dapat segera mengajukan pembelian barang kembali. | BR-01, BR-09, BR-12 |
 
 ## **6\. Alur Status**
 
@@ -170,7 +171,15 @@ Rincian kolom ada di file ERD\_ERP.pdf. Ringkasannya:
 
 Fitur di bawah ini tidak wajib dan hanya dikerjakan setelah Kriteria Selesai terpenuhi.
 
-1. **Notifikasi email stok menipis.** Setiap pagi Manajer dan Staf Gudang menerima email berisi daftar barang yang stoknya sama dengan atau di bawah stok minimum.
+1. **Notifikasi email stok menipis dan kritis.**
+   - **Tujuan**: Membantu operasional gudang dan manajemen memantau barang yang menipis atau habis tanpa harus membuka aplikasi secara terus-menerus.
+   - **Penerima**: Seluruh pengguna aktif dengan peran Manajer (`manajer`) dan Staf Gudang (`staf_gudang`).
+   - **Kondisi Pemicu**:
+     - *Otomatis (Scheduled/Cron)*: Endpoint `/api/notifications/email-stok` dijalankan setiap pagi (07:00 WIB) untuk merekap status stok harian.
+     - *Manual (On-demand)*: Manajer dapat memicu pengiriman email dan melihat pratinjau template email langsung melalui panel Pengaturan Sistem atau Dashboard.
+   - **Kriteria Barang**: Seluruh barang aktif dengan `stok <= stok_minimum`. Barang dengan stok 0 ditandai status merah "Habis/Kritis", sedangkan stok > 0 tetapi <= batas minimum ditandai kuning "Menipis".
+   - **Format & Keamanan Data (BR-12)**: Email berformat HTML responsif dengan branding CV Sinar Abadi Niaga, mencantumkan Kode Barang, Nama Barang, Satuan, Stok Fisik, Stok Minimum, dan Tombol Pintas Pengajuan PO. Demi menjaga kerahasiaan dagang sesuai BR-12, email tidak mencantumkan harga pokok (HPP) maupun margin barang.
+   - **Arsitektur Pengiriman**: Mendukung penyedia email API (seperti Resend / SMTP). Apabila API key belum dikonfigurasi pada lingkungan lokal/latihan, sistem otomatis berjalan dalam *Simulation Mode* (sandbox) yang mencatat log pengiriman dan menyediakan pratinjau pesan lengkap di aplikasi.
 
 2. **Cetak surat jalan.** Halaman Detail Pesanan Jual berstatus dikirim punya tampilan cetak (nomor pesanan, pelanggan, barang, jumlah, tanpa harga) untuk dibawa pengemudi.
 

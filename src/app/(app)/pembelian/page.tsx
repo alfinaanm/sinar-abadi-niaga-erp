@@ -712,7 +712,7 @@ export default function PembelianPage() {
         <>
           {/* Filter Status & Search Bar */}
           <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-1 md:pb-0">
               {(
                 [
                   { id: 'semua', label: 'Semua Status' },
@@ -750,22 +750,22 @@ export default function PembelianPage() {
 
           {/* Tabel Pembelian */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto scrollbar-none">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold">
                     <th className="py-3 px-4">No. PO</th>
-                    <th className="py-3 px-4">Tanggal</th>
-                    <th className="py-3 px-4">Pemasok</th>
-                    <th className="py-3 px-4">Barang</th>
-                    <th className="py-3 px-4 text-center">Dipesan</th>
-                    <th className="py-3 px-4 text-center">Diterima</th>
+                    <th className="py-3 px-3">Tanggal</th>
+                    <th className="py-3 px-3">Pemasok</th>
+                    <th className="py-3 px-3">Barang</th>
+                    <th className="py-3 px-2 text-center">Dipesan</th>
+                    <th className="py-3 px-2 text-center">Diterima</th>
                     {isManager && (
-                      <th className="py-3 px-4 text-right text-blue-700 bg-blue-50/50">
+                      <th className="py-3 px-3 text-right text-blue-700 bg-blue-50/50">
                         Harga Beli Satuan
                       </th>
                     )}
-                    <th className="py-3 px-4 text-center">Status</th>
+                    <th className="py-3 px-2 text-center">Status</th>
                     <th className="py-3 px-4 text-center">Aksi</th>
                   </tr>
                 </thead>
@@ -792,33 +792,37 @@ export default function PembelianPage() {
 
                       return (
                         <tr key={po.id} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="py-3 px-4 font-mono font-bold text-slate-900">
+                          <td className="py-3 px-4 font-mono font-bold text-slate-900 whitespace-nowrap">
                             {po.nomor}
                           </td>
-                          <td className="py-3 px-4 text-slate-500 whitespace-nowrap">
+                          <td className="py-3 px-3 text-slate-500 whitespace-nowrap">
                             {formatTanggal(po.diajukan_pada)}
                           </td>
-                          <td className="py-3 px-4 font-medium text-slate-800">
-                            {po.pemasok?.nama || 'Pemasok'}
+                          <td className="py-3 px-3 font-medium text-slate-800">
+                            <span className="truncate max-w-[130px] block" title={po.pemasok?.nama}>
+                              {po.pemasok?.nama || 'Pemasok'}
+                            </span>
                           </td>
-                          <td className="py-3 px-4 font-semibold text-slate-900">
-                            {po.barang?.nama || 'Barang'}
+                          <td className="py-3 px-3 font-semibold text-slate-900">
+                            <span className="truncate max-w-[140px] block" title={po.barang?.nama}>
+                              {po.barang?.nama || 'Barang'}
+                            </span>
                           </td>
-                          <td className="py-3 px-4 text-center font-mono font-medium text-slate-800">
+                          <td className="py-3 px-2 text-center font-mono font-medium text-slate-800 whitespace-nowrap">
                             {po.jumlah_dipesan} {po.barang?.satuan}
                           </td>
-                          <td className="py-3 px-4 text-center font-mono font-medium text-slate-600">
+                          <td className="py-3 px-2 text-center font-mono font-medium text-slate-600 whitespace-nowrap">
                             {po.jumlah_diterima !== null ? `${po.jumlah_diterima} ${po.barang?.satuan}` : '-'}
                           </td>
 
                           {/* Harga Beli Satuan: Kolom Rahasia Khusus Manajer (BR-12) */}
                           {isManager && (
-                            <td className="py-3 px-4 text-right font-mono font-semibold text-blue-900 bg-blue-50/30">
+                            <td className="py-3 px-3 text-right font-mono font-semibold text-blue-900 bg-blue-50/30 whitespace-nowrap">
                               {po.harga_beli_satuan ? formatRupiah(po.harga_beli_satuan) : '-'}
                             </td>
                           )}
 
-                          <td className="py-3 px-4 text-center">
+                          <td className="py-3 px-2 text-center whitespace-nowrap">
                             <span
                               className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${badge.bgClass} ${badge.textClass} ${badge.borderClass}`}
                               title={po.status === 'ditolak' && po.alasan_tolak ? `Alasan tolak: ${po.alasan_tolak}` : undefined}
@@ -826,13 +830,13 @@ export default function PembelianPage() {
                               {badge.label}
                             </span>
                             {po.status === 'ditolak' && po.alasan_tolak && (
-                              <p className="text-[10px] text-rose-600 italic mt-0.5 max-w-xs truncate mx-auto" title={po.alasan_tolak}>
+                              <p className="text-[10px] text-rose-600 italic mt-0.5 max-w-[120px] truncate mx-auto" title={po.alasan_tolak}>
                                 {po.alasan_tolak}
                               </p>
                             )}
                           </td>
 
-                          <td className="py-3 px-4 text-center">
+                          <td className="py-3 px-4 text-center whitespace-nowrap">
                             <div className="flex items-center justify-center gap-1.5">
                               {/* 1. Status DIAJUKAN */}
                               {po.status === 'diajukan' && (
@@ -845,7 +849,7 @@ export default function PembelianPage() {
                                           setHargaBeliInput(100000);
                                           setShowSetujuiModal(true);
                                         }}
-                                        className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-[11px] shadow-sm transition-colors"
+                                        className="px-2 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-semibold text-[10px] shadow-sm transition-colors"
                                       >
                                         Setujui
                                       </button>
@@ -855,7 +859,7 @@ export default function PembelianPage() {
                                           setAlasanTolakInput('');
                                           setShowTolakModal(true);
                                         }}
-                                        className="px-2.5 py-1 rounded-lg border border-rose-300 text-rose-700 hover:bg-rose-50 font-semibold text-[11px] transition-colors"
+                                        className="px-2 py-1 rounded-md border border-rose-300 text-rose-700 hover:bg-rose-50 font-semibold text-[10px] transition-colors"
                                       >
                                         Tolak
                                       </button>
@@ -864,7 +868,7 @@ export default function PembelianPage() {
                                   {(isOwner || isManager) && (
                                     <button
                                       onClick={() => handleBatalkanPO(po)}
-                                      className="p-1 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-100 text-[11px]"
+                                      className="p-1 rounded-md border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-100 text-[10px]"
                                       title="Batalkan Pengajuan"
                                     >
                                       <Ban className="w-3.5 h-3.5" />
@@ -882,7 +886,7 @@ export default function PembelianPage() {
                                       setJumlahTerimaInput(po.jumlah_dipesan);
                                       setShowTerimaModal(true);
                                     }}
-                                    className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-[11px] shadow-sm transition-colors flex items-center gap-1"
+                                    className="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-[10px] shadow-sm transition-colors flex items-center gap-1"
                                   >
                                     <PackageCheck className="w-3.5 h-3.5" />
                                     <span>Terima Barang</span>
@@ -891,7 +895,7 @@ export default function PembelianPage() {
                                   {isManager && (
                                     <button
                                       onClick={() => handleBatalkanPO(po)}
-                                      className="p-1 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-100 text-[11px]"
+                                      className="p-1 rounded-md border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-100 text-[10px]"
                                       title="Batalkan Pembelian"
                                     >
                                       <Ban className="w-3.5 h-3.5" />

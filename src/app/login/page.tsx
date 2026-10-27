@@ -3,7 +3,7 @@
 import React, { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { Package, Lock, Mail, AlertCircle, ArrowRight, ShieldCheck, UserCheck } from 'lucide-react';
+import { Package, Lock, Mail, AlertCircle, ArrowRight } from 'lucide-react';
 
 function LoginForm() {
   const [email, setEmail] = useState('');
@@ -66,12 +66,6 @@ function LoginForm() {
       setErrorMessage('Terjadi kesalahan jaringan. Coba beberapa saat lagi.');
       setLoading(false);
     }
-  };
-
-  const fillCredentials = (userEmail: string) => {
-    setEmail(userEmail);
-    setPassword('Latihan#2026');
-    setErrorMessage(null);
   };
 
   return (
@@ -159,94 +153,6 @@ function LoginForm() {
         </button>
       </form>
 
-      {/* Preset Akun Uji Cepat (Sangat Disukai Penguji/Mentor) */}
-      <div className="mt-8 pt-6 border-t border-slate-100">
-        <div className="flex items-center gap-2 mb-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-          <ShieldCheck className="w-4 h-4 text-blue-600" />
-          Pilih Akun Uji Cepat:
-        </div>
-        <div className="grid grid-cols-1 gap-2 max-h-56 overflow-y-auto pr-1">
-          <button
-            type="button"
-            onClick={() => fillCredentials('hendra@sinarabadi.test')}
-            className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 text-left transition-all group cursor-pointer"
-          >
-            <div>
-              <p className="text-xs font-semibold text-slate-800 group-hover:text-blue-700">
-                Hendra Wijaya
-              </p>
-              <p className="text-[11px] text-slate-500">hendra@sinarabadi.test</p>
-            </div>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-100 text-purple-700">
-              Manajer
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => fillCredentials('rina@sinarabadi.test')}
-            className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 text-left transition-all group cursor-pointer"
-          >
-            <div>
-              <p className="text-xs font-semibold text-slate-800 group-hover:text-blue-700">
-                Rina Kartika
-              </p>
-              <p className="text-[11px] text-slate-500">rina@sinarabadi.test</p>
-            </div>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-blue-700">
-              Staf Penjualan
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => fillCredentials('dimas@sinarabadi.test')}
-            className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 text-left transition-all group cursor-pointer"
-          >
-            <div>
-              <p className="text-xs font-semibold text-slate-800 group-hover:text-blue-700">
-                Dimas Prasetyo
-              </p>
-              <p className="text-[11px] text-slate-500">dimas@sinarabadi.test</p>
-            </div>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-blue-700">
-              Staf Penjualan
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => fillCredentials('joko@sinarabadi.test')}
-            className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 text-left transition-all group cursor-pointer"
-          >
-            <div>
-              <p className="text-xs font-semibold text-slate-800 group-hover:text-blue-700">
-                Joko Susanto
-              </p>
-              <p className="text-[11px] text-slate-500">joko@sinarabadi.test</p>
-            </div>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-700">
-              Staf Gudang
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => fillCredentials('agus@sinarabadi.test')}
-            className="flex items-center justify-between p-2.5 rounded-lg border border-rose-200 hover:border-rose-400 bg-rose-50/30 text-left transition-all group cursor-pointer"
-          >
-            <div>
-              <p className="text-xs font-semibold text-rose-800 group-hover:text-rose-900">
-                Agus Salim (Uji TC-02)
-              </p>
-              <p className="text-[11px] text-rose-500">agus@sinarabadi.test</p>
-            </div>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-100 text-rose-700 border border-rose-200">
-              Nonaktif
-            </span>
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

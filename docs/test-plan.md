@@ -64,6 +64,7 @@ Status: **Belum Diuji** / **Lulus** / **Gagal**.
 | **TC-16** | BR-12 (Uji Tembus RLS) | Staf Penjualan | Membuka tab DevTools Network / memanggil query database langsung ke tabel `item_costs` | Query ditolak (403 Forbidden) atau data `harga_pokok` bernilai `null` / kosong | Menunggu pengujian | Belum Diuji |
 | **TC-17** | BR-07 (Uji State Machine) | Staf Penjualan | Mencoba mengubah paksa status pesanan dari `draf` langsung ke `dikirim` atau `lunas` lewat API / Console | Ditolak oleh trigger/function database: "Perpindahan status tidak diizinkan" | Menunggu pengujian | Belum Diuji |
 | **TC-18** | BR-12 (Audit Trail) | Manajer | Memeriksa tabel `audit_logs` setelah melakukan perubahan harga jual, batas kredit, dan pembatalan pesanan | Tercatat log baru dengan kolom: pelaku, aksi, data yang diubah, nilai sebelum, nilai sesudah, dan waktu secara akurat | Menunggu pengujian | Belum Diuji |
+| **TC-19** | US-11, Bab 11 (Fitur Tambahan) | Manajer & Gudang | Memicu pengiriman notifikasi email stok menipis via endpoint API atau panel Pengaturan Sistem | Sistem berhasil mengompilasi daftar barang menipis, menghasilkan format HTML responsif tanpa membocorkan HPP (BR-12), dan mengirim ke email Manajer & Gudang (atau mode simulasi aktif) | Menunggu pengujian | Belum Diuji |
 
 ---
 

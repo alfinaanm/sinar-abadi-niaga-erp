@@ -257,9 +257,10 @@ CREATE POLICY "Staf Gudang dan Manajer bisa update pemasok"
 
 -- 3. POLICIES PELANGGAN
 DROP POLICY IF EXISTS "Staf Penjualan dan Manajer bisa melihat pelanggan" ON public.pelanggan;
-CREATE POLICY "Staf Penjualan dan Manajer bisa melihat pelanggan"
+DROP POLICY IF EXISTS "Semua peran aktif bisa melihat pelanggan" ON public.pelanggan;
+CREATE POLICY "Semua peran aktif bisa melihat pelanggan"
     ON public.pelanggan FOR SELECT TO authenticated
-    USING (public.current_user_role() IN ('penjualan', 'manajer'));
+    USING (public.current_user_role() IN ('penjualan', 'gudang', 'manajer'));
 
 DROP POLICY IF EXISTS "Staf Penjualan dan Manajer bisa menambah pelanggan" ON public.pelanggan;
 CREATE POLICY "Staf Penjualan dan Manajer bisa menambah pelanggan"
